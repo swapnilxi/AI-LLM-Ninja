@@ -1,0 +1,61 @@
+/* Home.css */
+
+/* Apply general styling to the body */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #f5f5f5;
+}
+
+/* Style the container to add some padding and center its content */
+.container {
+    padding: 2%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Style the CardGrid to display cards in a grid layout */
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    padding: 20px;
+}
+
+/* Style individual cards */
+.card {
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    transition: transform 0.3s ease;
+}
+
+/* Add hover effect to cards */
+.card:hover {
+    transform: translateY(-5px);
+}
+
+/* Style the card content */
+.card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+/* Style the card title */
+.card-title {
+    font-size: 1.5em;
+    margin-bottom: 10px;
+    color: #333;
+}
+
+/* Style the card description */
+.card-description {
+    font-size: 1em;
+    color: #666;
+}
