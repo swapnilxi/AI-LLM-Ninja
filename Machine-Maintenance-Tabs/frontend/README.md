@@ -1,7 +1,10 @@
 This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
 
 ## Getting Started
+<<<<<<< HEAD
 This is the inital branch 
+=======
+>>>>>>> 7b22a08 (Machine-initial-commit)
 
 First, run the development server:
 
