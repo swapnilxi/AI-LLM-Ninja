@@ -1,0 +1,25 @@
+.file-info {
+  margin-bottom: 10px;
+  transform: translateY(5px);
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.file-name {
+  margin-right: 10px; 
+}
+
+.file-size {
+  margin-top: 1px;
+}
+
+.cancel-button {
+  color: gray;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+.cancel-button:hover {
+  color: darkgray;
+}
