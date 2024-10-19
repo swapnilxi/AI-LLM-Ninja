@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<!-- saved from url=(0012)about:srcdoc -->
+<html lang="en-in"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    
+        <script>window.safeFrameId = "55fca56c-4f20-438b-a4ba-ead8fff88a36";</script>
+    <script>
+(function(c){function y(b,r,c,l){b.addEventListener?b.addEventListener(r,c,!0===l):b.attachEvent&&b.attachEvent("on"+r,c)}function B(){if(c.safeFrameId)return c.safeFrameId;var b=c.location.href;if((b=b&&b.match(/[&?]safeFrameId=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/))&&b[1])return b[1]}function C(){if(c.MutationObserver&&c.getComputedStyle){var b=function(){var b=document.body.childNodes;var n=b.length,l=Infinity,p=-Infinity,q=-Infinity,m=Infinity;if(0!==n&&c.getComputedStyle){for(;n--;){var f=
+b[n];if(f.getBoundingClientRect){var g=c.getComputedStyle(f);if(!g||"absolute"!==g.position){g=f.getBoundingClientRect();var k=g.left||0;var v=Math.max(g.width||0,f.scrollWidth);f=Math.max(g.height||0,f.scrollHeight);l=Math.min(Math.floor(g.top||0),l);p=Math.max(Math.ceil(k+v),Math.ceil(g.right),p);q=Math.max(Math.ceil(l+f),Math.ceil(g.bottom),q);m=Math.min(Math.floor(k),m)}}}b={width:p-m,height:q-l}}else b=void 0;b&&b.width&&b.height&&(SafeFrameClient.setWidth(b.width),SafeFrameClient.setHeight(b.height))};
+b();b=new MutationObserver(b);b.observe(document.body,{childList:!0,subtree:!0});return b}}function w(){function b(a){a.frameId=z;parent.postMessage(JSON.stringify(a),"*")}function r(){return e.geom}function n(){var a=e.geom&&e.geom.self&&e.geom.self.iv;return"undefined"!==typeof a?100*a:a}function l(){return e.hasAdBlocker}function p(a,d,D){try{var c=JSON.parse(JSON.stringify(d))}catch(G){c={}}b({action:"LOG_ERROR",message:a,exception:c,logLevel:D})}function q(){m();t=C()}function m(){t&&"function"===
+typeof t.disconnect&&t.disconnect();t=void 0}function f(a,d,b,c){a&&u.hasOwnProperty(a)&&((d=u[a]&&u[a][d])&&d.apply&&d.apply(null,b),c&&delete u[a])}function g(a,d){a&&"function"===typeof d&&(!0===A[a]&&x[a]?d(x[a]):(h[a]=h[a]||[],h[a].push(d)))}function k(a,d){var b;if(h[a]&&0<h[a].length){var c=[].concat(h[a]);var e=c.length;for(b=0;b<e;b++)c[b](d)}!0===A[a]&&(delete h[a],x[a]=d)}function v(a){try{var b=JSON.parse(a.data)}catch(F){b={}}var c=E[b.action];a.source===parent&&c&&c(b)}var z=B(),w=document.write,
+e={},h={},A={adblockerdetected:!0,atf:!0,cf:!0,clientReady:!0,load:!0},x={},t,u={},E={REGISTERED:function(a){e.geom=a.geom;e.isVisible=a.isVisible;e.hasAdBlocker=a.hasAdBlocker;k("clientReady",{});a=a.completedEventData||{};for(var b in a)a.hasOwnProperty(b)&&k(b,a[b]);l()&&k("adblockerdetected")},SCROLL:function(a){e.geom=a.geom;k("scroll",{})},RESIZE:function(a){e.geom=a.geom;k("resize",{})},VISIBILITY_CHANGE:function(a){e.isVisible=a.isVisible;k("visibilitychange",{})},TRIGGER:function(a){k(a.eventName,
+a.eventData||{})},AD_BLOCKER_DETECTED:function(){e.hasAdBlocker=!0;k("adblockerdetected")},ENABLE_AUTO_RESIZE:function(){q()},DISABLE_AUTO_RESIZE:function(){m()},AJAX_SUCCESS:function(a){f(a.requestId,"success",[a.response,a.status],!0)},AJAX_ERROR:function(a){f(a.requestId,"error",[null,a.status,a.error],!0)},AJAX_ABORT:function(a){f(a.requestId,"abort",[],!0)},AJAX_CHUNK:function(a){f(a.requestId,"chunk",[a.chunk],!1)}};(function(){document.write=function(){Function.prototype.apply.call(w,document,
+arguments);y(c,"message",v,!1)}})();(function(){c.onerror=function(a,b,c,e,f){p(["window.onerror",a,b,c,e].join(";"),f,"ERROR");return!0}})();y(c,"message",v,!1);(function(){g("clientReady",function(){b({action:"CLIENT_READY"})})})();c.$sf=c.$sf||{ext:{geom:r,inViewPercentage:n}};b({action:"REGISTER",timestamp:(new Date).getTime()});return{isVisible:function(){return e.isVisible},geom:r,inViewPercentage:n,hasAdBlocker:l,sendMetrics:function(a,d){b({action:"SEND_METRICS",metric:a,scope:d})},countMetric:function(a,
+d){b({action:"COUNT_METRIC",counterName:a,value:d})},incrementMetric:function(a,d){b({action:"INCREMENT_METRIC",counterName:a,value:d})},logError:p,setHeight:function(a){b({action:"SET_HEIGHT",value:a})},setWidth:function(a){b({action:"SET_WIDTH",value:a})},collapse:function(){b({action:"COLLAPSE"})},showFooter:function(a){b({action:"SHOW_FOOTER",data:a})},enableAutoResize:q,disableAutoResize:m,ajax:function(a,d){var c=a+Math.random().toString(36);d=d||{};u[c]={success:d.success,error:d.error,abort:d.abort,
+chunk:d.chunk};b({action:"AJAX",url:a,requestId:c,options:{accepts:d.accepts,cache:d.cache,contentType:d.contentType,method:d.method,params:d.params,paramsFormat:d.paramsFormat,timeout:d.timeout}})},on:g,off:function(a,b){var c;if(h[a]&&0<h[a].length)for(c=h[a].length;c--;)if(h[a][c]===b){h[a].splice(c,1);break}},tagRequest:function(a){b({action:"TAG_REQUEST",frameId:z,tagName:a})}}}c.SafeFrameClient=c.SafeFrameClient||w()})(window);
+</script>
+
+</head>
+<body style="margin:0;padding:0;">
+    
+
+
+
+
+
+
+
+
+
+
+
+    <div id="ape_Search_auto-left-advertising-1_search-desktop-loom_wrapper" class="celwidget">
+        
+
+         <style>@media screen and (max-width:240px){ div[id$=ape_search_btf_search-mWeb-Percolate-AdPlacementTemplate_wrapper]{ width:auto !important;margin-left:auto !important; left:auto !important} div[id$=search_btf_search-mWeb_text-wrapper]{ width:auto !important;margin-left:auto !important;left:auto !important}}@media screen and (orientation:landscape){ [id$=ape_search_btf_search-mWeb-Percolate-AdPlacementTemplate_wrapper]{ max-width:160px !important; margin-left:auto !important; margin-right:auto !important;} [id$=search_btf_search-mWeb_text-wrapper]{ max-width:160px !important;margin:auto !important}}#mobile-ad-image-centered{background-size:160px 600px !important}</style> 
+        <div id="ape_Search_auto-left-advertising-1_search-desktop-loom_placement">
+        </div>
+
+        
+    </div>
+
+<script type="text/javascript">
+    SafeFrameClient.on('clientReady', function() {
+            var sendCsmMetric=function(b,d){var a=SafeFrameClient.sendMetrics;if(typeof a==="function"){var c=d?d+":":"";a(b,"adplacements:"+c+"search:auto-left-advertising-1:search-desktop-loom");a(b,"adplacements:"+c+"8a02f48b-2df7-46b7-bbd7-00e0fef1b712");}};sendCsmMetric("bb");window["auto-left-advertising-1"]={};window["auto-left-advertising-1"].adStartTime=(new Date()).getTime();window["auto-left-advertising-1"].adDetails={abpStatus:"1",sfInnerStyle:"",containerSelector:"#ape_Search_auto-left-advertising-1_search-desktop-loom_placement",onError:SafeFrameClient.collapse,iframeSrc:"https://d1lxz4vuik53pc.cloudfront.net/a/ii/1722546138571/inner.html",iframeId:"ad-placements_inner-frame",scope:"search:auto-left-advertising-1:search-desktop-loom",loadAfter:"immediate",extraDelay:"0",adWidth:"160px",adHeight:"600px",maxAdWidth:"",boolFeedback:"true",encodedHtmlContent:"true",prefetchEnabled:"false",src:"https://aax-eu.amazon.in/e/xsp/getAd?placementId=8a02f48b-2df7-46b7-bbd7-00e0fef1b712&src=511&rj=%7B%22shouldRenderAbpAcceptableCreative%22%3Atrue%7D&slot=auto-left-advertising-1&rid=0101f5cd49fede6084fb132d2c5039682ba66a8f038a608ab3bd27b33ca6ae41eac1",aaxInstrPixelUrl:"",aaxImpPixelUrl:"",btrPixelUrl:"",pageType:"Search",slotName:"auto-left-advertising-1",subPageType:"search-desktop-loom",htmlContent:"",adNetwork:"cs",adCreativeMetaData:{adProgramId:"1027",adCreativeId:"0",adId:"20160234770598",adNetwork:"cs"},adUnitPlacementId:"ape_Search_auto-left-advertising-1_search-desktop-loom_placement",adCreativeDetails:[],invalidFallback:"true",extras:"{}"};document.addEventListener("ihjsloaded",function(){var a={abpStatus:"1",sfInnerStyle:"",containerSelector:"#ape_Search_auto-left-advertising-1_search-desktop-loom_placement",onError:SafeFrameClient.collapse,iframeSrc:"https://d1lxz4vuik53pc.cloudfront.net/a/ii/1722546138571/inner.html",iframeId:"ad-placements_inner-frame",scope:"search:auto-left-advertising-1:search-desktop-loom",loadAfter:"immediate",extraDelay:"0",adWidth:"160px",adHeight:"600px",maxAdWidth:"",boolFeedback:"true",encodedHtmlContent:"true",prefetchEnabled:"false",src:"https://aax-eu.amazon.in/e/xsp/getAd?placementId=8a02f48b-2df7-46b7-bbd7-00e0fef1b712&src=511&rj=%7B%22shouldRenderAbpAcceptableCreative%22%3Atrue%7D&slot=auto-left-advertising-1&rid=0101f5cd49fede6084fb132d2c5039682ba66a8f038a608ab3bd27b33ca6ae41eac1",aaxInstrPixelUrl:"",aaxImpPixelUrl:"",btrPixelUrl:"",pageType:"Search",slotName:"auto-left-advertising-1",subPageType:"search-desktop-loom",htmlContent:"",adNetwork:"cs",adCreativeMetaData:{adProgramId:"1027",adCreativeId:"0",adId:"20160234770598",adNetwork:"cs"},adUnitPlacementId:"ape_Search_auto-left-advertising-1_search-desktop-loom_placement",adCreativeDetails:[],invalidFallback:"true",extras:"{}"};try{window.initInnerHost(a);}catch(b){SafeFrameClient.collapse();}});var scriptElement=document.createElement("script");scriptElement.src="https://d1lxz4vuik53pc.cloudfront.net/a/ih/1722546148000/inner-host.min.js";scriptElement.type="text/javascript";scriptElement.async=true;sendCsmMetric("af");document.body.appendChild(scriptElement);
+    });
+
+</script>
+
+
+    <script>
+        window.SafeFrameClient && SafeFrameClient.on('clientReady', function(){
+            SafeFrameClient.countMetric('clientReady', 1);
+        });
+    </script>
+
+
+<script src="https://d1lxz4vuik53pc.cloudfront.net/a/ih/1722546148000/inner-host.min.js" type="text/javascript" async=""></script></body></html>
