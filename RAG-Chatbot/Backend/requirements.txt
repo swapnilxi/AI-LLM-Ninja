@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+asyncpg
+transformers
+torch
+psycopg2-binary
