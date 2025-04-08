@@ -4,8 +4,11 @@ asyncpg
 transformers
 torch
 psycopg2-binary
+<<<<<<< HEAD
 asyncpg
 sentence-transformers
 python-dotenv
 openai
 pdfplumber
+=======
+>>>>>>> baa2e29 (code-cleanup)
