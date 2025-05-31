@@ -16,6 +16,7 @@ Vision-RAG/visionrag-backend/room_dataset/SUNRGBD/
 # Ignore other common system files
 Thumbs.db
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 **/.env
 # Ignore Python cache directories
@@ -28,3 +29,7 @@ Amazon-AI-scrap-research/Amazon-Python-Scraper/.venv
 >>>>>>> 3a7d884 (amazon-scraper-ai-research)
 =======
 >>>>>>> 768c976 (adding-gitignore)
+=======
+
+**/.env
+>>>>>>> d63da03 (db-config-changes)
