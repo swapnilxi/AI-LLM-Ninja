@@ -8,3 +8,4 @@ asyncpg
 sentence-transformers
 python-dotenv
 openai
+pdfplumber
