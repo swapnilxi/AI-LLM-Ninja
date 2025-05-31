@@ -4,3 +4,7 @@ asyncpg
 transformers
 torch
 psycopg2-binary
+asyncpg
+sentence-transformers
+python-dotenv
+openai

@@ -9,3 +9,5 @@
 
 # Ignore other common system files
 Thumbs.db
+
+**/.env
