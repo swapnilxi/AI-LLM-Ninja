@@ -244,6 +244,8 @@ if __name__ == "__main__":
 import os
 from sentence_transformers import SentenceTransformer
 from typing import List, Tuple
+import pdfplumber
+
 
 # ====== PARAMETERS ======
 MODEL_NAME = "thenlper/gte-large"      # Change this as needed
@@ -255,12 +257,28 @@ DOCUMENTS_DIR = "backend/documents"    # Or your path
 model = SentenceTransformer(MODEL_NAME)
 
 # ====== DOCUMENT LOADING ======
+def load_pdf_file(path: str) -> str:
+    text = ""
+    with pdfplumber.open(path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+    return text
+
+def load_txt_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
 def load_documents(folder: str = DOCUMENTS_DIR) -> List[str]:
     docs = []
     for fname in os.listdir(folder):
-        if fname.endswith(".txt"):
-            with open(os.path.join(folder, fname), "r", encoding="utf-8") as f:
-                docs.append(f.read())
+        path = os.path.join(folder, fname)
+        if fname.lower().endswith(".txt"):
+            docs.append(load_txt_file(path))
+        elif fname.lower().endswith(".pdf"):
+            docs.append(load_pdf_file(path))
+        # Skip others
     return docs
 
 # ====== CHUNKING ======
@@ -289,14 +307,27 @@ def process_file_to_chunks_and_embeddings(
     chunk_size: int = CHUNK_SIZE,
     overlap: int = CHUNK_OVERLAP
 ) -> List[Tuple[str, list]]:
-    with open(file_path, "r", encoding="utf-8") as f:
-        text = f.read()
+    if file_path.lower().endswith(".txt"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    elif file_path.lower().endswith(".pdf"):
+        text = load_pdf_file(file_path)
+    else:
+        raise ValueError("Unsupported file type")
     chunks = chunk_text(text, chunk_size, overlap)
     embeddings = embed_texts(chunks)
     return list(zip(chunks, embeddings))
 
+async def get_rag_context(query: str, pool, top_k: int = 5):
+    embedding = embed_text(query)
+    from db import fetch_similar
+    chunks = await fetch_similar(pool, embedding, limit=top_k)
+    return "\n".join(chunks)
+
+
 # ====== Example usage ======
 if __name__ == "__main__":
+<<<<<<< HEAD
     # Example: process all .txt files in DOCUMENTS_DIR
     for fname in os.listdir(DOCUMENTS_DIR):
         if fname.endswith(".txt"):
@@ -304,3 +335,9 @@ if __name__ == "__main__":
             results = process_file_to_chunks_and_embeddings(path)
             print(f"Processed {fname}, got {len(results)} chunks.")
 >>>>>>> db6380b (embedding and chunking)
+=======
+    docs = load_documents()
+    for i, doc in enumerate(docs):
+        chunks = chunk_text(doc)
+        print(f"Doc {i}: {len(chunks)} chunks")
+>>>>>>> 339029c (first-api)
