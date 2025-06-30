@@ -8,7 +8,7 @@ import pdfplumber
 MODEL_NAME = "thenlper/gte-large"      # Change this as needed
 CHUNK_SIZE = 500                       # Adjust for your use-case
 CHUNK_OVERLAP = 50                     # Overlap in characters between chunks
-DOCUMENTS_DIR = "backend/documents"    # Or your path
+DOCUMENTS_DIR = "documents"    # Or your path
 
 # ====== LOAD MODEL ONCE ======
 model = SentenceTransformer(MODEL_NAME)
