@@ -173,6 +173,7 @@ import torch
 =======
 >>>>>>> 339029c (first-api)
 
+from groq_chat import get_groq_chat_response
 app = FastAPI()
 pool = None
 
@@ -193,10 +194,13 @@ async def ingest_documents():
              if fname.lower().endswith((".txt", ".pdf"))]
     added = 0
     for path in files:
-        for chunk, embedding in process_file_to_chunks_and_embeddings(path):
+        print(f"Ingesting file: {os.path.basename(path)}")
+        for idx, (chunk, embedding) in enumerate(process_file_to_chunks_and_embeddings(path)):
+            print(f"  Chunk #{idx + 1}: type(embedding)={type(embedding)}, len={len(embedding)}")
             await insert_chunk(pool, chunk, embedding)
             added += 1
     return {"status": "Documents ingested", "chunks_added": added}
+
 
 @app.post("/upload/")
 async def upload_document(file: UploadFile = File(...)):
@@ -235,6 +239,7 @@ async def openai_embedding(file: UploadFile = File(...)):
         os.remove(temp_path)
     return {"status": "File uploaded and OpenAI embedded", "chunks_added": count}
 
+# only context without llm
 @app.post("/query/")
 async def query_api(query: str = Body(..., embed=True)):
     emb = embed_text(query)
