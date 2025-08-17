@@ -1,1 +1,13 @@
-Amazon-AI-scrap-research/Amazon-Python-Scraper/.venv
+# Ignore all .venv directories
+**/.venv/
+
+# Ignore all node_modules directories
+**/node_modules/
+
+# Ignore macOS system files
+.DS_Store
+
+# Ignore other common system files
+Thumbs.db
+
+**/.env
