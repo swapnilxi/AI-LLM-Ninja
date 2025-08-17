@@ -1,0 +1,35 @@
+linkedin-api==2.3.1
+requests<3.0.0,>=2.32.3
+beautifulsoup4<5.0.0,>=4.12.3
+lxml<6.0.0,>=5.3.0
+
+# Core dependencies
+torch
+transformers
+opencv-python
+#pyaudio
+sounddevice
+soundfile
+numpy
+ffmpeg-python
+simpleaudio
+# requests (version specified above)
+
+# Whisper (Speech-to-Text)
+#openai-whisper
+
+# Text-to-Speech (TTS)
+pyttsx3
+#TTS>=0.13.3  # Coqui TTS or alternative
+suno-bark  # Optional: Bark TTS model
+
+# Vision Model (BLIP-2)
+Pillow
+#Salesforce-blip2  # BLIP-2 for image understanding
+
+# Large Language Model (Groq's Gemma2-9B-IT)
+huggingface_hub
+accelerate
+
+# Additional utilities
+python-dotenv  # For environment variable management

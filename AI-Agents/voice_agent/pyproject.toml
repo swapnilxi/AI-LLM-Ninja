@@ -1,0 +1,39 @@
+[project]
+name = "voice_crew"
+version = "0.1.0"
+description = "voice_crew using crewAI"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "accelerate>=1.5.2",
+    "crewai[tools]>=0.105.0,<1.0.0",
+    "ffmpeg-python>=0.2.0",
+    "huggingface-hub>=0.29.3",
+    "llvmlite>=0.44.0",
+    "numpy>=2.2.4",
+    "opencv-python>=4.11.0.86",
+    "pillow>=11.1.0",
+    "python-dotenv>=1.0.1",
+    "pyttsx3>=2.98",
+    "requests>=2.32.3",
+    "simpleaudio>=1.0.4",
+    "sounddevice>=0.5.1",
+    "soundfile>=0.13.1",
+    "suno-bark>=0.1.5",
+    "torch>=2.6.0",
+    "transformers>=4.46.3",
+]
+
+[project.scripts]
+voice_crew = "voice_crew.main:run"
+run_crew = "voice_crew.main:run"
+train = "voice_crew.main:train"
+replay = "voice_crew.main:replay"
+test = "voice_crew.main:test"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "crew"
