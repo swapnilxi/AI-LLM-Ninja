@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 # db.py — uses only "document_chunks" table for all document information
 import os
 import re
@@ -268,57 +269,269 @@ async def fetch_similar_simple(pool, embedding, limit=5):
         return [r["content"] for r in rows]
 =======
 import asyncpg
+=======
+# db.py — uses existing "documents" + "document_chunks"
+>>>>>>> e311865 (document-load-once)
 import os
+import re
+from typing import List, Optional, Tuple
+
+import asyncpg
 from dotenv import load_dotenv
 
-# Load .env file
 load_dotenv()
 
+# -----------------------------------------------------------------------------
+# ENV / CONFIG
+# -----------------------------------------------------------------------------
 DB_URL = os.getenv("DATABASE_URL")
+EMBED_DIM = int(os.getenv("EMBED_DIM", "1024"))            # gte-large = 1024
+VECTOR_METRIC = os.getenv("VECTOR_METRIC", "cosine").lower()
+IVFFLAT_LISTS = int(os.getenv("IVFFLAT_LISTS", "100"))
+CHUNKS_TABLE = os.getenv("CHUNKS_TABLE", "document_chunks")  # keep old name by default
 
-async def get_pool():
-    return await asyncpg.create_pool(dsn=DB_URL)
+if VECTOR_METRIC not in ("cosine", "l2"):
+    raise ValueError("VECTOR_METRIC must be 'cosine' or 'l2'")
+VECTOR_OPS = "vector_cosine_ops" if VECTOR_METRIC == "cosine" else "vector_l2_ops"
 
-async def init_db(pool):
+
+# -----------------------------------------------------------------------------
+# HELPERS
+# -----------------------------------------------------------------------------
+def _safe_table_name(name: str) -> str:
+    """Allow only a safe identifier for the table name (defense-in-depth)."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        raise ValueError("Invalid table name")
+    return name
+
+def _to_pgvector(embedding: List[float]) -> str:
+    """Render a Python list[float] as a Postgres vector literal."""
+    return "[" + ",".join(str(x) for x in embedding) + "]"
+
+
+# -----------------------------------------------------------------------------
+# POOL
+# -----------------------------------------------------------------------------
+async def get_pool(min_size: int = 1, max_size: int = 10) -> asyncpg.Pool:
+    if not DB_URL:
+        raise RuntimeError("DATABASE_URL is not set")
+    return await asyncpg.create_pool(dsn=DB_URL, min_size=min_size, max_size=max_size)
+
+
+# -----------------------------------------------------------------------------
+# INIT (NON-FATAL IF DATA IS DIRTY)
+# -----------------------------------------------------------------------------
+async def init_db(pool: asyncpg.Pool) -> None:
+    """
+    Ensures extensions exist, that 'documents' exists, and that
+    'document_chunks' has the columns + ANN index we need.
+    - Will NOT crash the app if unique index creation fails due to duplicates.
+    """
+    table = _safe_table_name(CHUNKS_TABLE)
+
     async with pool.acquire() as conn:
-        # Enable pgvector extension if not already enabled
-        await conn.execute("""
-            CREATE EXTENSION IF NOT EXISTS vector;
-        """)
-        # Create document_chunks table if it doesn't exist
-        #1536 if openAI and 1024 if thenlper/gte-large from HF
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS document_chunks (
-                id SERIAL PRIMARY KEY,
-                content TEXT,
-                embedding VECTOR(1024)
+        # Extensions we rely on
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")  # digest(), gen_random_uuid()
 
+        # Keep your existing documents table (create if missing)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                path TEXT NOT NULL UNIQUE,
+                filename TEXT NOT NULL,
+                size_bytes BIGINT NOT NULL,
+                mtime TIMESTAMPTZ NOT NULL,
+                sha256 TEXT NOT NULL,
+                processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
         """)
-        # (Optional) You can also check if table has expected schema, but this covers most use cases.
-        
-        # 3. Ensure the vector index exists (for fast ANN search)
-        await conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
-            ON document_chunks
-            USING ivfflat (embedding vector_cosine_ops)
-            WITH (lists = 100);
+
+        # Ensure the chunks table exists (we won't drop/rename anything)
+        await conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                id SERIAL PRIMARY KEY,
+                content TEXT,
+                embedding VECTOR({EMBED_DIM})
+            );
         """)
 
-async def insert_chunk(pool, content, embedding):
-    # Convert list of floats to string in Postgres vector format
-    embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO document_chunks (content, embedding) VALUES ($1, $2::vector)",
-            content, embedding_str
-        )
+        # Columns required for linking + dedupe (no data loss)
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS document_id uuid;")
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS chunk_index int NOT NULL DEFAULT 0;")
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS chunk_sha256 text;")
 
+        # Backfill per-chunk hash for existing rows (skip NULL content)
+        await conn.execute(f"""
+            UPDATE {table}
+            SET chunk_sha256 = encode(digest(content, 'sha256'), 'hex')
+            WHERE chunk_sha256 IS NULL AND content IS NOT NULL;
+        """)
+
+        # Create unique indexes IF POSSIBLE — don't crash if duplicates exist
+        # (You can run the one-time cleanup SQL I shared earlier to remove duplicates,
+        # then restart to get these uniques in place.)
+        try:
+            await conn.execute(f"""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_{table}_doc_idx
+                ON {table}(document_id, chunk_index);
+            """)
+        except asyncpg.PostgresError as e:
+            print(f"[init_db] WARN: couldn't create uq_{table}_doc_idx (duplicates exist?): {e}")
+
+        try:
+            await conn.execute(f"""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_{table}_doc_hash
+                ON {table}(document_id, chunk_sha256)
+                WHERE chunk_sha256 IS NOT NULL;
+            """)
+        except asyncpg.PostgresError as e:
+            print(f"[init_db] WARN: couldn't create uq_{table}_doc_hash (duplicates exist?): {e}")
+
+        # ANN index for fast vector search
+        await conn.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_{table}_embedding
+            ON {table}
+            USING ivfflat (embedding {VECTOR_OPS})
+            WITH (lists = {IVFFLAT_LISTS});
+        """)
+
+
+# -----------------------------------------------------------------------------
+# DOCUMENT HELPERS
+# -----------------------------------------------------------------------------
+async def get_document_by_path(pool: asyncpg.Pool, path: str) -> Optional[dict]:
+    q = "SELECT id, sha256 FROM documents WHERE path = $1"
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(q, path)
+        return dict(row) if row else None
+
+async def upsert_document(
+    pool: asyncpg.Pool,
+    *,
+    path: str,
+    filename: str,
+    size_bytes: int,
+    mtime_dt,
+    sha256: str,
+) -> str:
+    """
+    Upsert by path; returns document id.
+    """
+    q = """
+    INSERT INTO documents (path, filename, size_bytes, mtime, sha256)
+    VALUES ($1, $2, $3, $4, $5)
+    ON CONFLICT (path) DO UPDATE
+      SET size_bytes = EXCLUDED.size_bytes,
+          mtime = EXCLUDED.mtime,
+          sha256 = EXCLUDED.sha256,
+          processed_at = now()
+    RETURNING id;
+    """
+    async with pool.acquire() as conn:
+        return await conn.fetchval(q, path, filename, size_bytes, mtime_dt, sha256)
+
+
+# -----------------------------------------------------------------------------
+# CHUNK HELPERS
+# -----------------------------------------------------------------------------
+async def delete_chunks_for_document(pool: asyncpg.Pool, document_id: str) -> None:
+    table = _safe_table_name(CHUNKS_TABLE)
+    async with pool.acquire() as conn:
+        await conn.execute(f"DELETE FROM {table} WHERE document_id = $1", document_id)
+
+async def insert_chunks(
+    pool: asyncpg.Pool,
+    document_id: str,
+    rows: List[Tuple[int, str, List[float], str]],
+) -> int:
+    """
+    Insert chunk rows idempotently.
+    rows: (chunk_index, content, embedding(list[float]), chunk_sha256)
+
+    If the unique index on (document_id, chunk_sha256) isn't present yet,
+    we fall back to a NOT EXISTS guard to avoid crashing.
+    """
+    table = _safe_table_name(CHUNKS_TABLE)
+
+    upsert_sql = f"""
+        INSERT INTO {table} (document_id, chunk_index, content, embedding, chunk_sha256)
+        VALUES ($1, $2, $3, $4::vector, $5)
+        ON CONFLICT (document_id, chunk_sha256) DO NOTHING;
+    """
+
+    fallback_sql = f"""
+        INSERT INTO {table} (document_id, chunk_index, content, embedding, chunk_sha256)
+        SELECT $1, $2, $3, $4::vector, $5
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {table}
+            WHERE document_id = $1 AND chunk_sha256 = $5
+        );
+    """
+
+    prepared = [
+        (document_id, idx, txt, _to_pgvector(emb), chash)
+        for (idx, txt, emb, chash) in rows
+    ]
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            try:
+                await conn.executemany(upsert_sql, prepared)
+            except Exception:
+                # Likely "there is no unique or exclusion constraint matching the ON CONFLICT"
+                await conn.executemany(fallback_sql, prepared)
+
+    # executemany returns None; return 0 to keep the signature stable
+    return 0
+
+
+# -----------------------------------------------------------------------------
+# VECTOR SEARCH (FIXES `$1` ERROR)
+# -----------------------------------------------------------------------------
+async def fetch_similar(
+    pool: asyncpg.Pool, embedding: List[float], limit: int = 5, probes: int = 10
+) -> List[Tuple[str, float]]:
+    """
+    Return (content, distance) for top-K nearest chunks.
+
+    IMPORTANT:
+    - `SET LOCAL` cannot use bind parameters and cannot be combined with SELECT
+      as a single prepared statement. We run it separately with a literal int.
+    """
+    table = _safe_table_name(CHUNKS_TABLE)
+    vec = _to_pgvector(embedding)
+
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # Run as a separate statement; no bind params here.
+            await conn.execute(f"SET LOCAL ivfflat.probes = {int(probes)}")
+
+            rows = await conn.fetch(
+                f"""
+                SELECT content, (embedding <-> $1::vector) AS distance
+                FROM {table}
+                ORDER BY embedding <-> $1::vector
+                LIMIT $2
+                """,
+                vec, limit
+            )
+
+    # Smaller distance = closer (cosine distance in [0,2]; L2 unbounded)
+    return [(r["content"], float(r["distance"])) for r in rows]
+
+
+# -----------------------------------------------------------------------------
+# HEALTH
+# -----------------------------------------------------------------------------
+async def ping(pool: asyncpg.Pool) -> bool:
+    async with pool.acquire() as conn:
+        return (await conn.fetchval("SELECT 1;")) == 1
 
 
 
 # without llm
-async def fetch_similar(pool, embedding, limit=5):
+async def fetch_similar_simple(pool, embedding, limit=5):
     # Convert list to Postgres vector string
     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
     async with pool.acquire() as conn:

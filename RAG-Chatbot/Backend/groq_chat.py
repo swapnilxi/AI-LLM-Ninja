@@ -4,8 +4,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+<<<<<<< HEAD
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"  # Adjust if needed
 GROQ_MODEL = "llama3-70b-8192"  # or your preferred model
+=======
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-70b-8192")  # Use default if not available
+>>>>>>> e311865 (document-load-once)
 
 system_prompt = (
     "Answer as an expert using ONLY the following context. "
