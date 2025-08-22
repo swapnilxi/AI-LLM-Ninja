@@ -6,8 +6,12 @@ from db import get_pool, init_db, insert_chunks, fetch_similar,fetch_similar_sim
 =======
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 import os
+<<<<<<< HEAD
 from db import get_pool, init_db, insert_chunk, fetch_similar
 >>>>>>> 339029c (first-api)
+=======
+from db import get_pool, init_db, insert_chunks, fetch_similar,fetch_similar_simple
+>>>>>>> 0142b6a (document-load-once)
 from utils import (
     DOCUMENTS_DIR, 
     load_documents, 
@@ -190,16 +194,12 @@ async def ragApp():
 
 @app.post("/ingest/")
 async def ingest_documents():
-    files = [os.path.join(DOCUMENTS_DIR, fname) for fname in os.listdir(DOCUMENTS_DIR)
-             if fname.lower().endswith((".txt", ".pdf"))]
-    added = 0
-    for path in files:
-        print(f"Ingesting file: {os.path.basename(path)}")
-        for idx, (chunk, embedding) in enumerate(process_file_to_chunks_and_embeddings(path)):
-            print(f"  Chunk #{idx + 1}: type(embedding)={type(embedding)}, len={len(embedding)}")
-            await insert_chunk(pool, chunk, embedding)
-            added += 1
-    return {"status": "Documents ingested", "chunks_added": added}
+    from utils import index_documents_once
+    try:
+        await index_documents_once(pool, DOCUMENTS_DIR)
+        return {"status": "Documents ingested successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error ingesting documents: {str(e)}")
 
 
 @app.post("/upload/")
@@ -207,18 +207,25 @@ async def upload_document(file: UploadFile = File(...)):
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in [".txt", ".pdf"]:
         raise HTTPException(status_code=400, detail="Only .txt and .pdf files supported")
-    temp_path = os.path.join(DOCUMENTS_DIR, "_temp_upload" + ext)
-    with open(temp_path, "wb") as out_file:
+    
+    # Save the file with its original name to ensure proper tracking
+    safe_filename = file.filename.replace(" ", "_")
+    file_path = os.path.join(DOCUMENTS_DIR, safe_filename)
+    
+    with open(file_path, "wb") as out_file:
         content = await file.read()
         out_file.write(content)
+    
     try:
-        count = 0
-        for chunk, embedding in process_file_to_chunks_and_embeddings(temp_path):
-            await insert_chunk(pool, chunk, embedding)
-            count += 1
-    finally:
-        os.remove(temp_path)
-    return {"status": "File uploaded and ingested", "chunks_added": count}
+        # Use the index_documents_once function which handles the correct insert_chunks call
+        from utils import index_documents_once
+        await index_documents_once(pool, DOCUMENTS_DIR)
+        return {"status": "File uploaded and ingested successfully", "filename": safe_filename}
+    except Exception as e:
+        # If there's an error, clean up the file and raise an exception
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @app.post("/openai-embedding/")
 async def openai_embedding(file: UploadFile = File(...)):
@@ -243,15 +250,17 @@ async def openai_embedding(file: UploadFile = File(...)):
 @app.post("/query/")
 async def query_api(query: str = Body(..., embed=True)):
     emb = embed_text(query)
-    chunks = await fetch_similar(pool, emb, limit=5)
+    chunks = await fetch_similar_simple(pool, emb, limit=5)
+    # Join the content strings directly as fetch_similar_simple returns a list of strings
     context = "\n".join(chunks)
     return {"context": context}
 
 @app.post("/chat-openai/")
 async def chat_openai(query: str = Body(..., embed=True)):
+    from openai_chat import get_openai_chat_response
     context = await get_rag_context(query, pool)
     answer = await get_openai_chat_response(context, query)
-    return {"answer": answer}
+    return {"answer": answer, "context": context}
 
 <<<<<<< HEAD
     await conn.close()
@@ -264,7 +273,7 @@ async def chat_openai(query: str = Body(..., embed=True)):
 async def chat_groq(query: str = Body(..., embed=True)):
     context = await get_rag_context(query, pool)
     answer = await get_groq_chat_response(context, query)
-    return {"answer": answer}
+    return {"answer": answer, "context": context}
 
 if __name__ == "__main__":
     import uvicorn
