@@ -110,7 +110,7 @@ async def openai_embedding(file: UploadFile = File(...)):
     return {"status": "File uploaded and OpenAI embedded", "chunks_added": count}
 
 # only context without llm
-@app.post("/query/")
+@app.post("/query-context/")
 async def query_api(query: str = Body(..., embed=True)):
     if pool is None:
         return {"context": "", "status": "Database not available"}

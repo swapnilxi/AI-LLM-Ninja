@@ -160,7 +160,7 @@ async def index_documents_once(pool, folder: str = DOCUMENTS_DIR) -> None:
     #LAZY IMPORT TO AVOID CIRCULAR DEPENDENCIES
     from db import (
         get_document_by_path,
-        upsert_document,
+        upsert_document_metadata,
         delete_chunks_for_document,
         insert_chunks,
     )
@@ -179,8 +179,8 @@ async def index_documents_once(pool, folder: str = DOCUMENTS_DIR) -> None:
             # print(f"[indexer] SKIP unchanged: {path}")
             continue
 
-        #UPSERT DOC ROW (NEW OR UPDATED)
-        doc_id = await upsert_document(
+        #UPSERT DOC METADATA (NEW OR UPDATED)
+        await upsert_document_metadata(
             pool,
             path=path,
             filename=filename,
@@ -191,7 +191,7 @@ async def index_documents_once(pool, folder: str = DOCUMENTS_DIR) -> None:
 
         #IF CHANGED, CLEAR OLD CHUNKS FOR CLEAN REBUILD
         if existing and existing["sha256"] != content_hash:
-            await delete_chunks_for_document(pool, doc_id)
+            await delete_chunks_for_document(pool, path)
 
         #PROCESS + INSERT (DEDUPED BY UNIQUE CONSTRAINTS)
         rows = process_file_to_chunks_and_embeddings(path, CHUNK_SIZE, CHUNK_OVERLAP)
