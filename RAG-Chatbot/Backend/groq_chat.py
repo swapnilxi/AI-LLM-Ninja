@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama3-70b-8192"
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-70b-8192")  # Use default if not available
 
 async def get_groq_chat_response(context: str, user_query: str):
     headers = {

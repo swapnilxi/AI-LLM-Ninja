@@ -15,14 +15,31 @@ from embedding_openai import (
 )
 
 from groq_chat import get_groq_chat_response
-app = FastAPI()
+from contextlib import asynccontextmanager
+
 pool = None
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Setup - runs before the application starts
     global pool
-    pool = await get_pool()
-    await init_db(pool)
+    try:
+        pool = await get_pool()
+        await init_db(pool)
+        print("Database connection established successfully")
+    except Exception as e:
+        print(f"Error connecting to database: {str(e)}")
+        print("Application will continue without database functionality")
+        pool = None
+    
+    yield  # Application runs here
+    
+    # Cleanup - runs when the application is shutting down
+    if pool:
+        await pool.close()
+        print("Database connection closed")
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/")
 async def ragApp():
@@ -32,6 +49,9 @@ async def ragApp():
 @app.post("/ingest/")
 async def ingest_documents():
     from utils import index_documents_once
+    if pool is None:
+        print("Database connection not available, skipping document ingestion")
+        return {"status": "Database not available, skipping document ingestion"}
     try:
         await index_documents_once(pool, DOCUMENTS_DIR)
         return {"status": "Documents ingested successfully"}
@@ -56,6 +76,9 @@ async def upload_document(file: UploadFile = File(...)):
     try:
         # Use the index_documents_once function which handles the correct insert_chunks call
         from utils import index_documents_once
+        if pool is None:
+            print("Database connection not available, file saved but not ingested")
+            return {"status": "File uploaded successfully, but database not available for ingestion", "filename": safe_filename}
         await index_documents_once(pool, DOCUMENTS_DIR)
         return {"status": "File uploaded and ingested successfully", "filename": safe_filename}
     except Exception as e:
@@ -66,6 +89,9 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.post("/openai-embedding/")
 async def openai_embedding(file: UploadFile = File(...)):
+    if pool is None:
+        return {"status": "Database not available, skipping embedding"}
+    
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in [".txt", ".pdf"]:
         raise HTTPException(status_code=400, detail="Only .txt and .pdf files supported")
@@ -86,24 +112,46 @@ async def openai_embedding(file: UploadFile = File(...)):
 # only context without llm
 @app.post("/query/")
 async def query_api(query: str = Body(..., embed=True)):
-    emb = embed_text(query)
-    chunks = await fetch_similar_simple(pool, emb, limit=5)
-    # Join the content strings directly as fetch_similar_simple returns a list of strings
-    context = "\n".join(chunks)
-    return {"context": context}
+    if pool is None:
+        return {"context": "", "status": "Database not available"}
+    try:
+        emb = embed_text(query)
+        chunks = await fetch_similar_simple(pool, emb, limit=5)
+        # Join the content strings directly as fetch_similar_simple returns a list of strings
+        context = "\n".join(chunks)
+        return {"context": context}
+    except Exception as e:
+        print(f"Error in query API: {str(e)}")
+        return {"context": "", "error": str(e)}
 
 @app.post("/chat-openai/")
 async def chat_openai(query: str = Body(..., embed=True)):
     from openai_chat import get_openai_chat_response
-    context = await get_rag_context(query, pool)
-    answer = await get_openai_chat_response(context, query)
-    return {"answer": answer, "context": context}
+    try:
+        if pool is None:
+            context = ""
+            print("Database not available, proceeding without context")
+        else:
+            context = await get_rag_context(query, pool)
+        answer = await get_openai_chat_response(context, query)
+        return {"answer": answer, "context": context}
+    except Exception as e:
+        print(f"Error in chat-openai API: {str(e)}")
+        return {"answer": f"Error processing your request: {str(e)}", "context": ""}
 
 @app.post("/chat-groq/")
 async def chat_groq(query: str = Body(..., embed=True)):
-    context = await get_rag_context(query, pool)
-    answer = await get_groq_chat_response(context, query)
-    return {"answer": answer, "context": context}
+    try:
+        if pool is None:
+            context = ""
+            print("Database not available, proceeding without context")
+        else:
+            context = await get_rag_context(query, pool)
+        answer = await get_groq_chat_response(context, query)
+        return {"answer": answer, "context": context}
+    except Exception as e:
+        print(f"Error in chat-groq API: {str(e)}")
+        return {"answer": f"Error processing your request: {str(e)}", "context": ""}
 
 if __name__ == "__main__":
     import uvicorn
