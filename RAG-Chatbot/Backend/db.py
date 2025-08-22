@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 # db.py — uses only "document_chunks" table for all document information
 import os
 import re
@@ -272,6 +273,9 @@ import asyncpg
 =======
 # db.py — uses existing "documents" + "document_chunks"
 >>>>>>> e311865 (document-load-once)
+=======
+# db.py — uses only "document_chunks" table for all document information
+>>>>>>> d23d659 (document_chunks table)
 import os
 import re
 from typing import List, Optional, Tuple
@@ -323,8 +327,7 @@ async def get_pool(min_size: int = 1, max_size: int = 10) -> asyncpg.Pool:
 # -----------------------------------------------------------------------------
 async def init_db(pool: asyncpg.Pool) -> None:
     """
-    Ensures extensions exist, that 'documents' exists, and that
-    'document_chunks' has the columns + ANN index we need.
+    Ensures extensions exist and that 'document_chunks' has the columns + ANN index we need.
     - Will NOT crash the app if unique index creation fails due to duplicates.
     """
     table = _safe_table_name(CHUNKS_TABLE)
@@ -334,30 +337,25 @@ async def init_db(pool: asyncpg.Pool) -> None:
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
         await conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")  # digest(), gen_random_uuid()
 
-        # Keep your existing documents table (create if missing)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS documents (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                path TEXT NOT NULL UNIQUE,
-                filename TEXT NOT NULL,
-                size_bytes BIGINT NOT NULL,
-                mtime TIMESTAMPTZ NOT NULL,
-                sha256 TEXT NOT NULL,
-                processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            );
-        """)
 
-        # Ensure the chunks table exists (we won't drop/rename anything)
+        # Ensure the chunks table exists with all necessary columns
         await conn.execute(f"""
             CREATE TABLE IF NOT EXISTS {table} (
                 id SERIAL PRIMARY KEY,
                 content TEXT,
-                embedding VECTOR({EMBED_DIM})
+                embedding VECTOR({EMBED_DIM}),
+                path TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                size_bytes BIGINT NOT NULL,
+                mtime TIMESTAMPTZ NOT NULL,
+                sha256 TEXT NOT NULL,
+                processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                chunk_index int NOT NULL DEFAULT 0,
+                chunk_sha256 text
             );
         """)
 
-        # Columns required for linking + dedupe (no data loss)
-        await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS document_id uuid;")
+        # Columns required for dedupe (no data loss)
         await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS chunk_index int NOT NULL DEFAULT 0;")
         await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS chunk_sha256 text;")
 
@@ -374,7 +372,7 @@ async def init_db(pool: asyncpg.Pool) -> None:
         try:
             await conn.execute(f"""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_{table}_doc_idx
-                ON {table}(document_id, chunk_index);
+                ON {table}(path, chunk_index);
             """)
         except asyncpg.PostgresError as e:
             print(f"[init_db] WARN: couldn't create uq_{table}_doc_idx (duplicates exist?): {e}")
@@ -382,7 +380,7 @@ async def init_db(pool: asyncpg.Pool) -> None:
         try:
             await conn.execute(f"""
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_{table}_doc_hash
-                ON {table}(document_id, chunk_sha256)
+                ON {table}(path, chunk_sha256)
                 WHERE chunk_sha256 IS NOT NULL;
             """)
         except asyncpg.PostgresError as e:
@@ -401,12 +399,13 @@ async def init_db(pool: asyncpg.Pool) -> None:
 # DOCUMENT HELPERS
 # -----------------------------------------------------------------------------
 async def get_document_by_path(pool: asyncpg.Pool, path: str) -> Optional[dict]:
-    q = "SELECT id, sha256 FROM documents WHERE path = $1"
+    table = _safe_table_name(CHUNKS_TABLE)
+    q = f"SELECT DISTINCT ON (path) id, sha256 FROM {table} WHERE path = $1"
     async with pool.acquire() as conn:
         row = await conn.fetchrow(q, path)
         return dict(row) if row else None
 
-async def upsert_document(
+async def upsert_document_metadata(
     pool: asyncpg.Pool,
     *,
     path: str,
@@ -414,63 +413,63 @@ async def upsert_document(
     size_bytes: int,
     mtime_dt,
     sha256: str,
-) -> str:
+) -> None:
     """
-    Upsert by path; returns document id.
+    Update document metadata for all chunks of a document.
     """
-    q = """
-    INSERT INTO documents (path, filename, size_bytes, mtime, sha256)
-    VALUES ($1, $2, $3, $4, $5)
-    ON CONFLICT (path) DO UPDATE
-      SET size_bytes = EXCLUDED.size_bytes,
-          mtime = EXCLUDED.mtime,
-          sha256 = EXCLUDED.sha256,
-          processed_at = now()
-    RETURNING id;
+    table = _safe_table_name(CHUNKS_TABLE)
+    q = f"""
+    UPDATE {table}
+    SET path = $1, filename = $2, size_bytes = $3, mtime = $4, sha256 = $5, processed_at = now()
+    WHERE path = $1
     """
     async with pool.acquire() as conn:
-        return await conn.fetchval(q, path, filename, size_bytes, mtime_dt, sha256)
+        await conn.execute(q, path, filename, size_bytes, mtime_dt, sha256)
 
 
 # -----------------------------------------------------------------------------
 # CHUNK HELPERS
 # -----------------------------------------------------------------------------
-async def delete_chunks_for_document(pool: asyncpg.Pool, document_id: str) -> None:
+async def delete_chunks_for_document(pool: asyncpg.Pool, path: str) -> None:
     table = _safe_table_name(CHUNKS_TABLE)
     async with pool.acquire() as conn:
-        await conn.execute(f"DELETE FROM {table} WHERE document_id = $1", document_id)
+        await conn.execute(f"DELETE FROM {table} WHERE path = $1", path)
 
 async def insert_chunks(
     pool: asyncpg.Pool,
-    document_id: str,
+    path: str,
+    filename: str,
+    size_bytes: int,
+    mtime_dt,
+    sha256: str,
     rows: List[Tuple[int, str, List[float], str]],
 ) -> int:
     """
-    Insert chunk rows idempotently.
+    Insert chunk rows idempotently with document metadata.
     rows: (chunk_index, content, embedding(list[float]), chunk_sha256)
 
-    If the unique index on (document_id, chunk_sha256) isn't present yet,
+    If the unique index on (path, chunk_sha256) isn't present yet,
     we fall back to a NOT EXISTS guard to avoid crashing.
     """
     table = _safe_table_name(CHUNKS_TABLE)
 
     upsert_sql = f"""
-        INSERT INTO {table} (document_id, chunk_index, content, embedding, chunk_sha256)
-        VALUES ($1, $2, $3, $4::vector, $5)
-        ON CONFLICT (document_id, chunk_sha256) DO NOTHING;
+        INSERT INTO {table} (path, filename, size_bytes, mtime, sha256, chunk_index, content, embedding, chunk_sha256)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector, $9)
+        ON CONFLICT (path, chunk_sha256) DO NOTHING;
     """
 
     fallback_sql = f"""
-        INSERT INTO {table} (document_id, chunk_index, content, embedding, chunk_sha256)
-        SELECT $1, $2, $3, $4::vector, $5
+        INSERT INTO {table} (path, filename, size_bytes, mtime, sha256, chunk_index, content, embedding, chunk_sha256)
+        SELECT $1, $2, $3, $4, $5, $6, $7, $8::vector, $9
         WHERE NOT EXISTS (
             SELECT 1 FROM {table}
-            WHERE document_id = $1 AND chunk_sha256 = $5
+            WHERE path = $1 AND chunk_sha256 = $9
         );
     """
 
     prepared = [
-        (document_id, idx, txt, _to_pgvector(emb), chash)
+        (path, filename, size_bytes, mtime_dt, sha256, idx, txt, _to_pgvector(emb), chash)
         for (idx, txt, emb, chash) in rows
     ]
 
@@ -532,11 +531,12 @@ async def ping(pool: asyncpg.Pool) -> bool:
 
 # without llm
 async def fetch_similar_simple(pool, embedding, limit=5):
+    table = _safe_table_name(CHUNKS_TABLE)
     # Convert list to Postgres vector string
     embedding_str = "[" + ",".join(str(x) for x in embedding) + "]"
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT content FROM document_chunks ORDER BY embedding <-> $1::vector LIMIT $2",
+            f"SELECT content FROM {table} ORDER BY embedding <-> $1::vector LIMIT $2",
             embedding_str, limit
         )
         return [r["content"] for r in rows]
