@@ -195,7 +195,7 @@ async def index_documents_once(pool, folder: str = DOCUMENTS_DIR) -> None:
 
         #PROCESS + INSERT (DEDUPED BY UNIQUE CONSTRAINTS)
         rows = process_file_to_chunks_and_embeddings(path, CHUNK_SIZE, CHUNK_OVERLAP)
-        _ = await insert_chunks(pool, doc_id, rows)
+        _ = await insert_chunks(pool, path, filename, size_bytes, mtime_dt, content_hash, rows)
 
 
 def load_documents(folder: str = DOCUMENTS_DIR):
