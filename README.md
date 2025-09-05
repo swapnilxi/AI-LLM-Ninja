@@ -29,9 +29,7 @@ A full-stack chat application built with a React frontend and a Flask backend. I
   - Integration with RAG (Retrieval-Augmented Generation) for advanced query handling.
   - Asynchronous task processing using Celery and Redis.
 
-### 📈 Equity News Research Bot
 
-An incomplete project, which appears to be a placeholder for a future bot designed to research and analyze equity news. The main Python file is currently empty.
 
 ### 🛠️ Machine Maintenance Dashboard
 
