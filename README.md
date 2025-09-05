@@ -9,7 +9,7 @@ A collection of AI and LLM projects, ranging from educational materials to full-
 A directory containing various AI agent-related projects.
 
 - **Microsoft's AI Agents Course**: A comprehensive, 10-lesson course created by Microsoft, designed to teach the fundamentals of building AI Agents. It includes code samples, videos, and extra learning resources.
-- **Company Analyzer**: An incomplete project that was likely intended to be a tool for analyzing company data. The backend is currently empty.
+- **Company Analyzer**: An in progress project that was likely intended to be a tool for analyzing company financial data . 
 - **Other Agents**: The directory also contains other agent projects such as a `voice_agent` and a `post_agent`.
 
 ### 🛍️ Amazon AI Scraping and Research
