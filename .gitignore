@@ -1,9 +1,10 @@
-# Ignore SUNRGBD dataset
-Vision-RAG/visionrag-backend/room_dataset/SUNRGBD/
-
-
 # Ignore all .venv directories
 **/.venv/
+Amazon-AI-scrap-research/Amazon-Python-Scraper/.venv
+
+
+#environment files
+**/.env
 
 # Ignore all node_modules directories
 **/node_modules/
@@ -20,9 +21,11 @@ Thumbs.db
 __pycache__/
 **/__pycache__/
 *.py[cod]
-/Vision-RAG/visionrag-backend/room_dataset/HomeObjects-3k-Dataset/HomeObjects-dataset
+#Ignore project specific files
+/Vision-RAG/visionrag-backend/Room_Dataset/HomeObjects-dataset
+# Ignore SUNRGBD dataset
+Vision-RAG/visionrag-backend/room_dataset/SUNRGBD/
 
-Amazon-AI-scrap-research/Amazon-Python-Scraper/.venv
 
-**/.env
+
 
