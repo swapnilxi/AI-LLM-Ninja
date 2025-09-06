@@ -60,13 +60,13 @@ async def query_siglp(payload: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"SigLIP query error: {str(e)}")
 
-@router.post("/query-google")
-async def query_google(payload: dict):
+@router.post("/query-gemini")
+async def query_gemini(payload: dict):
     q = payload.get("question") if isinstance(payload, dict) else None
     if not q:
         return JSONResponse({"error": "question required"}, status_code=400)
     try:
-        result = retrieve_with_google_vision(q)
+        result = retrieve_with_gemini_vision(q)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Google Vision query error: {str(e)}")
