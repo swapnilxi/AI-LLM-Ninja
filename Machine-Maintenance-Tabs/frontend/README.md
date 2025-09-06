@@ -3,12 +3,16 @@ This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next
 ## Getting Started
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 This is the inital branch 
 =======
 >>>>>>> 7b22a08 (Machine-initial-commit)
 =======
 This is the inital branch 
 >>>>>>> 103a8b3 (updated readme)
+=======
+This is the inital branch 
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 
 First, run the development server:
 

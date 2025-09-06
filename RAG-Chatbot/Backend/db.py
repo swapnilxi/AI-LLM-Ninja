@@ -1,6 +1,9 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 # db.py — uses only "document_chunks" table for all document information
 import os
 import re
@@ -267,6 +270,7 @@ async def fetch_similar_simple(pool, embedding, limit=5):
             f"SELECT content FROM {table} ORDER BY embedding <-> $1::vector LIMIT $2",
             embedding_str, limit
         )
+<<<<<<< HEAD
         return [r["content"] for r in rows]
 =======
 import asyncpg
@@ -540,3 +544,6 @@ async def fetch_similar_simple(pool, embedding, limit=5):
             embedding_str, limit
         )
         return [r["content"] for r in rows]
+=======
+        return [r["content"] for r in rows]
+>>>>>>> 2bd1a99 (vision-rag-chatbot)

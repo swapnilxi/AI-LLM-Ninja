@@ -1,6 +1,9 @@
 import os
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 import openai
 import asyncpg
 from dotenv import load_dotenv
@@ -21,6 +24,7 @@ async def get_pool():
     return await asyncpg.create_pool(dsn=DB_URL)
 
 async def init_openai_db(pool):
+<<<<<<< HEAD
 =======
 import aiofiles
 import asyncpg
@@ -51,6 +55,8 @@ async def init_db(pool):
 =======
 async def init_openai_db(pool):
 >>>>>>> 339029c (first-api)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
     async with pool.acquire() as conn:
         await conn.execute("""
             CREATE EXTENSION IF NOT EXISTS vector;
@@ -71,6 +77,7 @@ async def init_openai_db(pool):
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 async def insert_chunk_openai(pool, content, embedding):
 =======
 async def insert_chunk(pool, content, embedding):
@@ -78,12 +85,16 @@ async def insert_chunk(pool, content, embedding):
 =======
 async def insert_chunk_openai(pool, content, embedding):
 >>>>>>> 339029c (first-api)
+=======
+async def insert_chunk_openai(pool, content, embedding):
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
     async with pool.acquire() as conn:
         await conn.execute(
             "INSERT INTO openai_document_chunks (content, embedding) VALUES ($1, $2)",
             content, embedding
         )
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 # ====== OPENAI EMBEDDING ======
@@ -121,6 +132,11 @@ def get_embedding_openai(text: str, model: str = OPENAI_MODEL) -> List[float]:
 def get_embedding_openai(text: str, model: str = OPENAI_MODEL):
     # OpenAI's API is synchronous
 >>>>>>> 339029c (first-api)
+=======
+# ====== OPENAI EMBEDDING ======
+def get_embedding_openai(text: str, model: str = OPENAI_MODEL):
+    # OpenAI's API is synchronous
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
     response = openai.embeddings.create(
         input=[text],
         model=model
@@ -129,8 +145,11 @@ def get_embedding_openai(text: str, model: str = OPENAI_MODEL):
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> 339029c (first-api)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 # ====== PIPELINE FUNCTION FOR ONE FILE ======
 def process_file_to_chunks_and_embeddings_openai(
     file_path: str,
@@ -150,6 +169,9 @@ def process_file_to_chunks_and_embeddings_openai(
 # ====== PIPELINE FUNCTION FOR ALL DOCS IN FOLDER ======
 async def ingest_all_documents_openai():
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
     pool = await get_pool()
     await init_openai_db(pool)
     files = [os.path.join(DOCUMENTS_DIR, fname) for fname in os.listdir(DOCUMENTS_DIR)
@@ -176,6 +198,7 @@ async def fetch_similar_openai(pool, embedding, limit=5):
 if __name__ == "__main__":
     import asyncio
     asyncio.run(ingest_all_documents_openai())
+<<<<<<< HEAD
 =======
 # ========== MAIN INGEST FUNCTION ==========
 async def ingest_documents_with_openai():
@@ -212,3 +235,5 @@ if __name__ == "__main__":
 =======
     asyncio.run(ingest_all_documents_openai())
 >>>>>>> 339029c (first-api)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)

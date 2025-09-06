@@ -6,11 +6,15 @@ torch
 psycopg2-binary
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 asyncpg
 sentence-transformers
 python-dotenv
 openai
 pdfplumber
+<<<<<<< HEAD
 <<<<<<< HEAD
 =======
 >>>>>>> baa2e29 (code-cleanup)
@@ -22,3 +26,5 @@ openai
 >>>>>>> d63da03 (db-config-changes)
 =======
 >>>>>>> db6380b (embedding and chunking)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)

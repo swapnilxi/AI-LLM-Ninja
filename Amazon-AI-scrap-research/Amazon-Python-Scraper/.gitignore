@@ -1,6 +1,7 @@
 .venv/
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 .DS_Store
 =======
@@ -10,3 +11,7 @@ cd
 
 .DS_Store
 >>>>>>> 3a7d884 (amazon-scraper-ai-research)
+=======
+
+.DS_Store
+>>>>>>> 2bd1a99 (vision-rag-chatbot)

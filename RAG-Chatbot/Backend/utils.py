@@ -1,12 +1,18 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> e311865 (document-load-once)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 # utils.py
 # =============================================================================
 #FILE SCANNER + CHUNKER + EMBEDDER WITH DEDUPE LOGIC
 # =============================================================================
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 import os
 import hashlib
 from datetime import datetime, timezone
@@ -244,6 +250,7 @@ if __name__ == "__main__":
     for p in yield_files(DOCUMENTS_DIR):
         rows = process_file_to_chunks_and_embeddings(p)
         print(f"{os.path.basename(p)} -> {len(rows)} chunks")
+<<<<<<< HEAD
 =======
 =======
 >>>>>>> e311865 (document-load-once)
@@ -501,3 +508,5 @@ if __name__ == "__main__":
         rows = process_file_to_chunks_and_embeddings(p)
         print(f"{os.path.basename(p)} -> {len(rows)} chunks")
 >>>>>>> e311865 (document-load-once)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)

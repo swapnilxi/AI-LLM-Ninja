@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 from fastapi import FastAPI, UploadFile, File, HTTPException, Body
 import os
 from db import get_pool, init_db, insert_chunks, fetch_similar,fetch_similar_simple
@@ -12,6 +13,11 @@ from db import get_pool, init_db, insert_chunk, fetch_similar
 =======
 from db import get_pool, init_db, insert_chunks, fetch_similar,fetch_similar_simple
 >>>>>>> 0142b6a (document-load-once)
+=======
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body
+import os
+from db import get_pool, init_db, insert_chunks, fetch_similar,fetch_similar_simple
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 from utils import (
     DOCUMENTS_DIR, 
     load_documents, 
@@ -25,6 +31,9 @@ from embedding_openai import (
     insert_chunk_openai
 )
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 
 from groq_chat import get_groq_chat_response
 from contextlib import asynccontextmanager
@@ -168,6 +177,7 @@ async def chat_groq(query: str = Body(..., embed=True)):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
+<<<<<<< HEAD
 =======
 from fastapi import FastAPI
 import asyncpg
@@ -327,3 +337,5 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=True)
 >>>>>>> 339029c (first-api)
+=======
+>>>>>>> 2bd1a99 (vision-rag-chatbot)

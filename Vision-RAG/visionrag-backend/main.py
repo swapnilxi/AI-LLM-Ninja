@@ -11,6 +11,7 @@ from yaml_utils import (
 
 # DB + pipeline imports
 from RAG_Module.db import init_pool, init_db, close_pool
+<<<<<<< HEAD
 from RAG_Module.ingest import ingest_homeobjects_images
 from RAG_Module.retrieval import router as retrieval_router
 from RAG_Module.retrieval import retrieve_with_siglip
@@ -21,6 +22,15 @@ from prometheus_client import generate_latest
 
 # Import the new retrieval router
 
+=======
+from app.ingest import ingest_image_bytes
+from app.retriever import answer_query
+
+from prometheus_client import generate_latest
+
+# Import the new retrieval router
+from RAG_Module.retrieval import router as retrieval_router
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 
 # Ingestion pipeline imports
 # Ingestion pipeline imports
@@ -95,7 +105,26 @@ def get_dataset_config(dataset_name: str):
         raise HTTPException(status_code=500, detail=f"Error loading configuration: {str(e)}")
 
 
+<<<<<<< HEAD
 
+=======
+@app.get("/config/validate/{dataset_name}", tags=["configuration"])
+def validate_dataset_config(dataset_name: str):
+    try:
+        loader = YAMLConfigLoader()
+        config = loader.load_ultralytics_dataset_config(dataset_name)
+        is_valid = loader.validate_dataset_config(config)
+        return {
+            "status": "success",
+            "dataset_name": dataset_name,
+            "is_valid": is_valid,
+            "config": config,
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error validating configuration: {str(e)}")
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
 
 
 # ---- NEW: Ingest & Query endpoints ----
@@ -129,7 +158,11 @@ async def query(payload: dict):
     if not q:
         return JSONResponse({"error": "question required"}, status_code=400)
     try:
+<<<<<<< HEAD
         result = retrieve_with_siglip(q)
+=======
+        result = await answer_query(q)
+>>>>>>> 2bd1a99 (vision-rag-chatbot)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Query error: {str(e)}")
