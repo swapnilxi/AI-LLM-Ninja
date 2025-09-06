@@ -79,6 +79,8 @@ async def init_db(pool: asyncpg.Pool) -> None:
         """)
 
         # Columns required for dedupe (no data loss)
+        # Ensure 'path' column exists (fixes index creation errors)
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS path TEXT NOT NULL DEFAULT '';")
         await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS chunk_index int NOT NULL DEFAULT 0;")
         await conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS chunk_sha256 text;")
 

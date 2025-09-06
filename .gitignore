@@ -1,3 +1,5 @@
+# Ignore SUNRGBD dataset
+Vision-RAG/visionrag-backend/room_dataset/SUNRGBD/
 # Ignore all .venv directories
 **/.venv/
 
@@ -11,3 +13,8 @@
 Thumbs.db
 
 **/.env
+# Ignore Python cache directories
+__pycache__/
+**/__pycache__/
+*.py[cod]
+/Vision-RAG/visionrag-backend/room_dataset/HomeObjects-3k-Dataset/HomeObjects-dataset
