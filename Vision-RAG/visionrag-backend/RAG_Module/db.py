@@ -4,9 +4,9 @@ import json
 import asyncio
 import asyncpg
 from typing import Any, Dict, List, Optional
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 
-load_dotenv()
+load_dotenv(find_dotenv(usecwd=True), override=False)
 
 # ---- Configuration ----
 DB_DSN = os.getenv("DB_URL")  # e.g. postgresql://user:pass@host/db?sslmode=require
@@ -88,48 +88,48 @@ async def init_db():
             await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
             await conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS vision_rag_text_chunks (
-                id BIGSERIAL PRIMARY KEY,
-                doc_id TEXT,
-                text   TEXT,
-                embedding VECTOR({VECTOR_DIM}),
-                meta JSONB
-            );
+                CREATE TABLE IF NOT EXISTS vision_rag_text_chunks (
+                    id BIGSERIAL PRIMARY KEY,
+                    doc_id TEXT,
+                    text   TEXT,
+                    embedding VECTOR({VECTOR_DIM}),
+                    meta JSONB
+                );
             """)
 
             await conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS vision_rag_images (
-                id BIGSERIAL PRIMARY KEY,
-                image_id TEXT,
-                uri TEXT,
-                embedding VECTOR({VECTOR_DIM}),
-                meta JSONB
-            );
+                CREATE TABLE IF NOT EXISTS vision_rag_images (
+                    id BIGSERIAL PRIMARY KEY,
+                    image_id TEXT,
+                    uri TEXT,
+                    embedding VECTOR({VECTOR_DIM}),
+                    meta JSONB
+                );
             """)
 
             await conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS vision_rag_image_segments (
-                id BIGSERIAL PRIMARY KEY,
-                image_id TEXT,
-                bbox FLOAT8[],     -- [x1,y1,x2,y2]
-                caption TEXT,
-                embedding VECTOR({VECTOR_DIM}),
-                meta JSONB
-            );
+                CREATE TABLE IF NOT EXISTS vision_rag_image_segments (
+                    id BIGSERIAL PRIMARY KEY,
+                    image_id TEXT,
+                    bbox FLOAT8[],     -- [x1,y1,x2,y2]
+                    caption TEXT,
+                    embedding VECTOR({VECTOR_DIM}),
+                    meta JSONB
+                );
             """)
 
             # IVFFlat indexes (create after some rows exist for best clustering)
             await conn.execute(f"""
-            CREATE INDEX IF NOT EXISTS text_chunks_ivf
-              ON vision_rag_text_chunks USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
+                CREATE INDEX IF NOT EXISTS vision_rag_text_chunks_ivf
+                ON vision_rag_text_chunks USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
             """)
             await conn.execute(f"""
-            CREATE INDEX IF NOT EXISTS images_ivf
-              ON vision_rag_images USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
+                CREATE INDEX IF NOT EXISTS vision_rag_images_ivf
+                ON vision_rag_images USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
             """)
             await conn.execute(f"""
-            CREATE INDEX IF NOT EXISTS segments_ivf
-              ON vision_rag_image_segments USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
+                CREATE INDEX IF NOT EXISTS vision_rag_segments_ivf
+                ON vision_rag_image_segments USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
             """)
 
 
@@ -208,7 +208,7 @@ async def query_knn(
     extra_cols = extra_cols or []
     # choose display column
     display_col = "caption" if table == "vision_rag_image_segments" else ("text" if table == "vision_rag_text_chunks" else "uri")
-    cols = ["id", display_col + " AS content", "1 / (1 + embedding <-> $1::vector) AS score"] + extra_cols
+    cols = ["id", display_col + " AS content", "1.0 / (1.0 + (embedding <-> $1::vector)) AS score"] + extra_cols
     col_sql = ", ".join(cols)
 
     async with pool.acquire() as conn:
@@ -221,7 +221,7 @@ async def query_knn(
                 ORDER BY embedding <-> $1::vector
                 LIMIT {k}
                 """,
-                embedding
+                _format_vector(embedding),
             )
     # Convert to plain dicts
     return [dict(r) for r in rows]
