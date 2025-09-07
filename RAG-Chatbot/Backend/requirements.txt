@@ -4,8 +4,21 @@ asyncpg
 transformers
 torch
 psycopg2-binary
+<<<<<<< HEAD
+<<<<<<< HEAD
 asyncpg
 sentence-transformers
 python-dotenv
 openai
 pdfplumber
+<<<<<<< HEAD
+=======
+>>>>>>> baa2e29 (code-cleanup)
+=======
+asyncpg
+sentence-transformers
+python-dotenv
+openai
+>>>>>>> d63da03 (db-config-changes)
+=======
+>>>>>>> db6380b (embedding and chunking)

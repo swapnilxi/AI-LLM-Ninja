@@ -1,0 +1,175 @@
+# ============================================================
+# Gemini Vision API Configuration
+# ============================================================
+
+# API Configuration
+api:
+  # Your Google AI API key (set via environment variable GOOGLE_AI_API_KEY)
+  key: "${GOOGLE_AI_API_KEY}"
+
+  # Gemini model to use
+  model: "gemini-1.5-flash" # Options: gemini-1.5-flash, gemini-1.5-pro, gemini-1.0-pro
+
+  # API endpoint (usually auto-detected)
+  endpoint: null
+
+  # Request timeout in seconds
+  timeout: 30
+
+  # Maximum retries for failed requests
+  max_retries: 3
+
+# Analysis Settings
+analysis:
+  # Enable/disable Gemini Vision API labeling
+  enabled: true
+
+  # Minimum confidence score for analysis (0.0 to 1.0)
+  min_confidence: 0.3
+
+  # Maximum number of segments to analyze per image
+  max_segments_per_image: 20
+
+  # Whether to analyze the full image for scene context
+  analyze_full_image: true
+
+  # Whether to save individual segment analysis results
+  save_segment_results: true
+
+  # Output format for analysis results
+  output_format: "json" # Options: json, csv, txt
+
+# Prompt Templates
+prompts:
+  # Template for object segment analysis
+  segment_analysis: |
+    Analyze this segmented object in detail. The object was detected as "{coco_label}" 
+    with a confidence score of {confidence_score:.3f}.
+
+    Please provide:
+    1. A detailed description of what you see
+    2. The specific type/category of object
+    3. Key visual attributes (color, material, style, condition, etc.)
+    4. Context about where this object might be used
+    5. A more specific, descriptive label
+
+    Focus on providing rich, contextual information that goes beyond the basic COCO label.
+    Be specific about visual details, materials, and contextual usage.
+
+    Respond in JSON format with these fields:
+    {
+        "description": "detailed visual description",
+        "object_type": "specific type/category",
+        "attributes": ["attribute1", "attribute2", "..."],
+        "context": "usage context and placement",
+        "detailed_label": "specific descriptive label"
+    }
+
+  # Template for full image scene analysis
+  scene_analysis: |
+    Analyze this indoor scene image and provide:
+    1. Overall room/space description
+    2. Main objects and furniture visible
+    3. Room type and purpose
+    4. General atmosphere and style
+
+    Respond in JSON format:
+    {
+        "scene_description": "overall description",
+        "room_type": "type of room",
+        "main_objects": ["object1", "object2", "..."],
+        "style": "decorative style",
+        "atmosphere": "overall atmosphere"
+    }
+
+# Output Settings
+output:
+  # Directory for saving analysis results
+  results_dir: "room_dataset/analysis_results"
+
+  # Directory for saving enhanced segmented images
+  images_dir: "room_dataset/outputs_infer"
+
+  # File naming pattern for results
+  filename_pattern: "{image_name}_analysis.json"
+
+  # Whether to include original image metadata
+  include_image_metadata: true
+
+  # Whether to include processing timestamps
+  include_timestamps: true
+
+  # Compression level for output files (0-9, 0=no compression)
+  compression_level: 0
+
+# Performance Settings
+performance:
+  # Enable parallel processing for multiple segments
+  parallel_processing: false
+
+  # Number of worker processes for parallel processing
+  num_workers: 2
+
+  # Batch size for processing multiple images
+  batch_size: 1
+
+  # Delay between API calls (seconds) to avoid rate limiting
+  api_call_delay: 0.1
+
+  # Enable caching of API responses
+  enable_caching: false
+
+  # Cache directory for storing API responses
+  cache_dir: ".gemini_cache"
+
+# Logging Settings
+logging:
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  level: "INFO"
+
+  # Log file path (null for console only)
+  log_file: null
+
+  # Log format
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Whether to log API requests and responses
+  log_api_calls: false
+
+  # Whether to log image processing steps
+  log_processing: true
+
+# Error Handling
+error_handling:
+  # Whether to continue processing if individual segments fail
+  continue_on_segment_error: true
+
+  # Whether to retry failed API calls
+  retry_failed_calls: true
+
+  # Maximum number of retries per API call
+  max_retries_per_call: 3
+
+  # Whether to save error logs
+  save_error_logs: true
+
+  # Error log file path
+  error_log_file: "gemini_errors.log"
+
+# Advanced Settings
+advanced:
+  # Custom HTTP headers for API requests
+  custom_headers: {}
+
+  # Proxy settings (if needed)
+  proxy: null
+
+  # SSL verification settings
+  verify_ssl: true
+
+  # Custom prompt modifications
+  prompt_modifications: {}
+
+  # Model-specific parameters
+  model_params: {}
+
