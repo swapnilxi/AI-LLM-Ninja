@@ -37,6 +37,19 @@ def _extract_json(text: str) -> str:
         raise ValueError("No JSON payload found in Gemini response")
     return m.group(1)
 
+# ---- Public helpers: vector alignment ----
+def ensure_dim(vec: List[float], dim: int = EMBED_DIM) -> List[float]:
+    """Pad or truncate a vector to the desired dimension."""
+    return _fit_dim(list(vec), dim)
+
+def l2_normalize(vec: List[float]) -> List[float]:
+    """Return L2-normalized copy of the vector (no-op for zero vector)."""
+    return _l2_normalize(list(vec))
+
+def align_vector(vec: List[float], dim: int = EMBED_DIM, normalize: bool = True) -> List[float]:
+    """Fit to dimension and optionally L2-normalize. Use this before DB inserts."""
+    v = ensure_dim(vec, dim)
+    return l2_normalize(v) if normalize else v
 # ---- Public: text embeddings ----
 def embed_text(texts: List[str], *, task_type: str = "RETRIEVAL_DOCUMENT") -> np.ndarray:
     """
@@ -106,3 +119,47 @@ def embed_image_via_caption(image_bytes: bytes) -> List[float]:
     """
     cap = caption_image(image_bytes)
     return embed_text_one(cap, task_type="RETRIEVAL_DOCUMENT")
+
+# ---- Public: image embeddings (engines: gemini, siglip) ----
+_siglip_state: Dict[str, Optional[object]] = {"model": None, "processor": None, "torch": None}
+
+def _get_siglip():
+    """Lazy-load SigLIP model/processor and cache them."""
+    if _siglip_state["model"] is None or _siglip_state["processor"] is None or _siglip_state["torch"] is None:
+        try:
+            from transformers import SiglipProcessor, SiglipModel  # type: ignore
+            import torch as _torch  # type: ignore
+        except Exception as e:
+            raise RuntimeError("SigLIP dependencies not installed. Please install 'transformers' and 'torch'.") from e
+        _siglip_state["processor"] = SiglipProcessor.from_pretrained("google/siglip-base-patch16-224")
+        _siglip_state["model"] = SiglipModel.from_pretrained("google/siglip-base-patch16-224")
+        _siglip_state["torch"] = _torch
+    return _siglip_state["model"], _siglip_state["processor"], _siglip_state["torch"]
+
+def embed_image_siglip(image_bytes: bytes) -> List[float]:
+    """
+    Compute SigLIP image-only embedding and align to EMBED_DIM with L2-normalization.
+    """
+    model, processor, torch = _get_siglip()
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    inputs = processor(images=img, return_tensors="pt")
+    with torch.no_grad():
+        feats = model.get_image_features(**inputs)
+    vec = feats.squeeze().cpu().numpy().tolist()
+    vec = _fit_dim(vec, EMBED_DIM)
+    vec = _l2_normalize(vec)
+    return vec
+
+def embed_image(image_bytes: bytes, engine: str = "gemini") -> List[float]:
+    """
+    Unified image embedding interface.
+    - engine='gemini': caption with Gemini Vision then text-embedding-004
+    - engine='siglip': local SigLIP image features
+    Returns an EMBED_DIM-sized, L2-normalized vector.
+    """
+    e = (engine or "gemini").lower()
+    if e == "gemini":
+        return embed_image_via_caption(image_bytes)
+    if e in ("siglip", "siglip-local", "local"):
+        return embed_image_siglip(image_bytes)
+    raise ValueError(f"Unsupported engine '{engine}'. Use 'gemini' or 'siglip'.")

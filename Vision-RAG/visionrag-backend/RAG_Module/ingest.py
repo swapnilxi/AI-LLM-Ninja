@@ -1,205 +1,185 @@
 """
-ingest.py: Handles ingestion of HomeObjects-3k-Dataset images into Neon Postgres with pgvector
+Unified ingestion pipeline for images into Postgres/pgvector.
+- Computes global image embeddings using Gemini (caption -> text-embedding) or SigLIP.
+- Optionally segments with Gemini Vision and stores segment caption embeddings.
+- Writes into canonical tables: vision_rag_images, vision_rag_image_segments.
 """
-import json
 import os
 import io
-from typing import List, Dict
-from . import db
+from typing import List, Dict, Optional
+
 from PIL import Image
-from transformers import SiglipProcessor, SiglipModel
-import google.generativeai as genai 
-import torch
 from fastapi import APIRouter, HTTPException, UploadFile, File
+# embedding engines are provided by embed.py
+from . import db
+from . import embed
 
-DATASET_PATH = "room_dataset/HomeObjects-3k-Dataset/HomeObjects-dataset/images/train"
-GEMINI_VISION_MODEL = "gemini-1.5-flash"
-GEMINI_EMBEDDING_MODEL = "text-embedding-004"
-siglip_model = SiglipModel.from_pretrained("google/siglip-base-patch16-224")
-siglip_processor = SiglipProcessor.from_pretrained("google/siglip-base-patch16-224")
+# ---- Configuration ----
+DATASET_PATH = os.getenv(
+    "HOMEOBJECTS_DATASET_PATH",
+    "room_dataset/HomeObjects-3k-Dataset/HomeObjects-dataset/images/train",
+)
 
-def get_gemini_image_embedding(image_data: bytes) -> List[float]:
-    """Generate embedding from Gemini by describing the image and embedding the text."""
-    model = genai.GenerativeModel(GEMINI_VISION_MODEL)
-    img = Image.open(io.BytesIO(image_data))
-    prompt = "Generate a detailed description of this image for use in a retrieval-augmented generation system."
-    response = model.generate_content([prompt, img])
-    description = response.text if response.text else "No description generated"
-    
-    embedding_response = genai.embed_content(
-        model=GEMINI_EMBEDDING_MODEL,
-        content=description,
-        task_type="RETRIEVAL_DOCUMENT"
-    )
-    embedding = embedding_response['embedding']
-    return embedding + [0.0] * (768 - len(embedding)) if len(embedding) < 768 else embedding[:768]
-
-def get_siglip_image_embedding(image_data: bytes) -> List[float]:
-    """Generate image embedding using SigLIP (image-only)."""
-    import io
-    import torch
-    image = Image.open(io.BytesIO(image_data)).convert("RGB")
-    inputs = siglip_processor(images=image, return_tensors="pt")
-    with torch.no_grad():
-        embedding = siglip_model.get_image_features(**inputs)
-    emb = embedding.squeeze().cpu().numpy().tolist()
-    return emb + [0.0] * (768 - len(emb)) if len(emb) < 768 else emb[:768]
+# SigLIP and gemini embeddings are provided by embed.embed_image(..., engine="siglip")
 
 
-##----segmentation and embedding functions using gemini and siglip----
-def get_gemini_segmentation(image_data: bytes) -> List[Dict]:
-    """Generate segmentation data (bbox, caption) using Gemini 1.5 Pro."""
-    model = genai.GenerativeModel(GEMINI_VISION_MODEL)
-    img = Image.open(io.BytesIO(image_data))
-    prompt = """
-    Analyze this image and provide a list of objects with their approximate bounding boxes and captions. 
-    For each object, return:
-    - Caption: A brief description (e.g., "a dog").
-    - Bounding box: [x1, y1, x2, y2] as percentages of image width/height (0-100).
-    Format the output as a JSON array of objects, e.g., [{"caption": "a dog", "bbox": [10, 20, 30, 40]}, ...].
+# ---- Utilities ----
+# Convert percentage bbox [x1,y1,x2,y2] (0-100) to pixel coords within image size.
+def _pct_to_px(bbox_pct: List[float], w: int, h: int) -> List[float]:
+    """Convert percentage bbox [x1,y1,x2,y2] (0-100) to pixel coords within image size."""
+    x1 = max(0, min(w, int(round(bbox_pct[0] * w / 100.0))))
+    y1 = max(0, min(h, int(round(bbox_pct[1] * h / 100.0))))
+    x2 = max(0, min(w, int(round(bbox_pct[2] * w / 100.0))))
+    y2 = max(0, min(h, int(round(bbox_pct[3] * h / 100.0))))
+    if x2 < x1:
+        x1, x2 = x2, x1
+    if y2 < y1:
+        y1, y2 = y2, y1
+    return [float(x1), float(y1), float(x2), float(y2)]
+
+
+# ---- Core ingestion ----
+async def ingest_image_bytes(
+    image_bytes: bytes,
+    image_id: str,
+    *,
+    uri: Optional[str] = None,
+    engine: str = "gemini",
+    segment: bool = True,
+) -> Dict:
     """
-    response = model.generate_content([prompt, img])
-    try:
-        segments = json.loads(response.text.strip('```json\n').strip('```'))
-        return segments
-    except Exception:
-        return [{"caption": "No segments detected", "bbox": [0, 0, 0, 0]}]
-
-def get_gemini_segment_embedding(caption: str) -> List[float]:
-    """Generate embedding for a segment caption using text-embedding-004."""
-    embedding_response = genai.embed_content(
-        model=GEMINI_EMBEDDING_MODEL,
-        content=caption,
-        task_type="RETRIEVAL_DOCUMENT"
+    Ingest a single image (bytes) with chosen embedding engine and optional segmentation.
+    engine: 'gemini' or 'siglip'
+    """
+    engine_lc = (engine or "gemini").lower()
+    img_vec = embed.embed_image(image_bytes, engine=engine_lc)
+    
+    await db.insert_image(
+        image_id=image_id,
+        uri=uri,
+        embedding=img_vec,
+        meta={"source": "dataset" if uri else "upload", "engine": engine_lc},
     )
-    embedding = embedding_response['embedding']
-    return embedding + [0.0] * (768 - len(embedding)) if len(embedding) < 768 else embedding[:768]
 
-##---- image analyze -----
-async def analyze_image_with_gemini(image_data: bytes) -> Dict:
-    """Analyze image using Gemini 1.5 Pro for RAG-friendly descriptions."""
-    model = genai.GenerativeModel(GEMINI_VISION_MODEL)
-    img = Image.open(io.BytesIO(image_data))
-    prompt = "Generate a detailed description of this image for use in a retrieval-augmented generation system."
-    response = model.generate_content([prompt, img])
-    description = response.text if response.text else "No description generated"
-    return {"description": description}
-
-async def analyze_image_with_siglip(image_data: bytes) -> Dict:
-    """Analyze image using SigLIP for zero-shot classification."""
-    image = Image.open(io.BytesIO(image_data)).convert("RGB")
-    labels = ["a dog", "a cat", "a car", "a tree", "a person"]
-    inputs = siglip_processor(text=labels, images=image, return_tensors="pt", padding=True)
-    
-    with torch.no_grad():
-        outputs = siglip_model(**inputs)
-    
-    logits = outputs.logits_per_image
-    probs = torch.sigmoid(logits).detach().numpy()[0]
-    return {label: float(prob) for label, prob in zip(labels, probs)} 
-
-
-
-
-async def ingest_homeobjects_images():
-    pool = db.get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS vision_rag_homeobjects (
-                id SERIAL PRIMARY KEY,
-                image_path TEXT UNIQUE,
-                embedding VECTOR(512)
-            )
-        """)
-        ingested = []
-        skipped = []
-        for fname in os.listdir(DATASET_PATH):
-            if fname.lower().endswith((".jpg", ".jpeg", ".png")):
-                img_path = os.path.join(DATASET_PATH, fname)
-                exists = await conn.fetchval("SELECT 1 FROM vision_rag_homeobjects WHERE image_path=$1", img_path)
-                if exists:
-                    skipped.append(fname)
-                    continue
-                emb = analyze_image_with_gemini(img_path)
-                await conn.execute(
-                    "INSERT INTO vision_rag_homeobjects (image_path, embedding) VALUES ($1, $2)",
-                    img_path, emb
+    seg_count = 0
+    if segment:
+        segs = embed.segment_image(image_bytes, max_items=10)
+        if segs:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            W, H = img.size
+            for s in segs:
+                bbox_xyxy = _pct_to_px(s["bbox"], W, H)
+                seg_cap = s["caption"]
+                seg_vec = embed.embed_text_one(seg_cap, task_type="RETRIEVAL_DOCUMENT")
+                await db.insert_image_segment(
+                    image_id=image_id,
+                    bbox=bbox_xyxy,
+                    caption=seg_cap,
+                    embedding=seg_vec,
+                    meta={"from": "gemini_pct_bbox"},
                 )
-                ingested.append(fname)
-        return {"ingested": ingested, "skipped": skipped}
+                seg_count += 1
 
-# FastAPI router for ingestion endpoints
+    return {"image_id": image_id, "segments": seg_count, "engine": engine_lc}
+
+
+async def ingest_homeobjects_images(
+    dataset_path: str = DATASET_PATH,
+    *,
+    engine: str = "gemini",
+    segment: bool = True,
+) -> Dict:
+    """
+    Bulk-ingest images from a directory into the canonical tables.
+    Skips files whose URI already exists in vision_rag_images.
+    """
+    pool = db.get_pool()
+    ingested: List[str] = []
+    skipped: List[str] = []
+
+    async with pool.acquire() as conn:
+        for fname in os.listdir(dataset_path):
+            if not fname.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                continue
+            img_path = os.path.join(dataset_path, fname)
+            exists = await conn.fetchval(
+                "SELECT 1 FROM vision_rag_images WHERE uri=$1",
+                img_path,
+            )
+            if exists:
+                skipped.append(fname)
+                continue
+            with open(img_path, "rb") as fh:
+                data = fh.read()
+            await ingest_image_bytes(
+                data,
+                image_id=fname,
+                uri=img_path,
+                engine=engine,
+                segment=segment,
+            )
+            ingested.append(fname)
+
+    return {"ingested": ingested, "skipped": skipped}
+
+
+# ---- FastAPI router ----
 ingest_router = APIRouter(prefix="/ingest", tags=["ingest"])
 
-@ingest_router.post("/homeobjects")
-async def ingest_homeobjects_api():
+
+@ingest_router.post("/image")
+async def ingest_image_api(
+    file: UploadFile = File(...),
+    engine: str = "gemini",
+    segment: bool = True,
+):
     """
-    Ingest all images from HomeObjects-3k-Dataset, skipping those already in vector DB.
+    Ingest a single image.
+    Query params:
+      - engine: 'gemini' or 'siglip' (default: 'gemini')
+      - segment: true/false to also store Gemini Vision segments (default: true)
     """
     try:
-        result = await ingest_homeobjects_images()
-        return {"status": "completed", **result}
+        data = await file.read()
+        result = await ingest_image_bytes(
+            data, image_id=file.filename, uri=None, engine=engine, segment=segment
+        )
+        return {"status": "ingested", **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
+
+
+@ingest_router.post("/homeobjects")
+async def ingest_homeobjects_api(engine: str = "gemini", segment: bool = True):
+    """
+    Ingest all images from the HomeObjects-3k dataset folder,
+    skipping those already present in the vector DB.
+    """
+    try:
+        result = await ingest_homeobjects_images(engine=engine, segment=segment)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Bulk ingestion error: {str(e)}")
+    return {"status": "completed", **result}
 
 
-
-
-
-
-async def ingest_image_siglip_local(data, image_id):
-    from io import BytesIO
-    image = Image.open(BytesIO(data)).convert("RGB")
-    inputs = siglip_processor(images=image, return_tensors="pt")
-    with torch.no_grad():
-        embedding = siglip_model.get_image_features(**inputs)
-    emb = embedding.squeeze().cpu().numpy().tolist()
-    pool = db.get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO vision_rag_images (image_id, uri, embedding, meta) VALUES ($1, $2, $3::vector, $4::jsonb)",
-            image_id, None, db._format_vector(emb), db._as_json({"source": "siglip-local"})
-        )
-    return {"status": "ingested", "image_id": image_id}
-
-async def ingest_image_gemini(data, image_id):
-    emb = get_gemini_image_embedding(data)
-    pool = db.get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO vision_rag_images (image_id, uri, embedding, meta) VALUES ($1, $2, $3::vector, $4::jsonb)",
-            image_id, None, db._format_vector(emb), db._as_json({"source": "gemini"})
-        )
-    return {"status": "ingested using gemini", "image_id": image_id}
-
+# ---- Backward-compat endpoints ----
 @ingest_router.post("/image-gemini")
 async def ingest_image_gemini_api(file: UploadFile = File(...)):
     try:
         data = await file.read()
-        return await ingest_image_gemini(data, file.filename)
+        result = await ingest_image_bytes(data, image_id=file.filename, engine="gemini")
+        return {"status": "ingested", **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
-
+    
 @ingest_router.post("/image-local")
-async def ingest_image_api(file: UploadFile = File(...)):
+async def ingest_image_local_api(file: UploadFile = File(...)):
     """
-    Ingest a single image using SigLIP and return analysis along with ingestion status.
+    Ingest a single image using SigLIP (local) embeddings.
     """
     try:
         data = await file.read()
-        # Get SigLIP embedding and analyze the image
-        emb = get_siglip_image_embedding(data)
-        analysis = await analyze_image_with_siglip(data)
-        pool = db.get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO vision_rag_images (image_id, uri, embedding, meta) VALUES ($1, $2, $3::vector, $4::jsonb)",
-                file.filename, None, db._format_vector(emb), db._as_json({"source": "siglip-local"})
-            )
-        return {
-            "status": "ingested",
-            "image_id": file.filename,
-            "analysis": analysis
-        }
+        result = await ingest_image_bytes(data, image_id=file.filename, engine="siglip")
+        return {"status": "ingested", **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
