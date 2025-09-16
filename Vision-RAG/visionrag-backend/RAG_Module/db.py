@@ -158,14 +158,17 @@ async def insert_text_chunk(doc_id: str, text: str, embedding: List[float], meta
 
 
 async def insert_image(image_id: str, uri: str, embedding: List[float], meta: Optional[Dict[str, Any]] = None):
+    caption_embedding = None
+    if meta and "caption_embedding" in meta:
+        caption_embedding = meta["caption_embedding"]
     pool = get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO vision_rag_images (image_id, uri, embedding, meta)
-            VALUES ($1, $2, $3::vector, $4::jsonb)
+            INSERT INTO vision_rag_images (image_id, uri, embedding, meta, caption_embedding)
+            VALUES ($1, $2, $3::vector, $4::jsonb, $5::vector)
             """,
-            image_id, uri, _format_vector(embedding), _as_json(meta)
+            image_id, uri, _format_vector(embedding), _as_json(meta), _format_vector(caption_embedding) if caption_embedding else None
         )
 
 
@@ -176,14 +179,17 @@ async def insert_image_segment(
     embedding: List[float],
     meta: Optional[Dict[str, Any]] = None
 ):
+    caption_embedding = None
+    if meta and "caption_embedding" in meta:
+        caption_embedding = meta["caption_embedding"]
     pool = get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO vision_rag_image_segments (image_id, bbox, caption, embedding, meta)
-            VALUES ($1, $2, $3, $4::vector, $5::jsonb)
+            INSERT INTO vision_rag_image_segments (image_id, bbox, caption, embedding, meta, caption_embedding)
+            VALUES ($1, $2, $3, $4::vector, $5::jsonb, $6::vector)
             """,
-            image_id, bbox, caption, _format_vector(embedding), _as_json(meta)
+            image_id, bbox, caption, _format_vector(embedding), _as_json(meta), _format_vector(caption_embedding) if caption_embedding else None
         )
 
 

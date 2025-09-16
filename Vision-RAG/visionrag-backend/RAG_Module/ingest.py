@@ -53,12 +53,19 @@ async def ingest_image_bytes(
     """
     engine_lc = (engine or "gemini").lower()
     img_vec = embed.embed_image(image_bytes, engine=engine_lc)
-    
+    caption = embed.caption_image(image_bytes)
+    caption_embedding = embed.embed_text_one(caption, task_type="RETRIEVAL_DOCUMENT")
+
     await db.insert_image(
         image_id=image_id,
         uri=uri,
         embedding=img_vec,
-        meta={"source": "dataset" if uri else "upload", "engine": engine_lc},
+        meta={
+            "source": "dataset" if uri else "upload",
+            "engine": engine_lc,
+            "caption": caption,
+            "caption_embedding": caption_embedding,
+        },
     )
 
     seg_count = 0
@@ -76,11 +83,15 @@ async def ingest_image_bytes(
                     bbox=bbox_xyxy,
                     caption=seg_cap,
                     embedding=seg_vec,
-                    meta={"from": "gemini_pct_bbox"},
+                    meta={
+                        "from": "gemini_pct_bbox",
+                        "caption": seg_cap,
+                        "caption_embedding": seg_vec,
+                    },
                 )
                 seg_count += 1
 
-    return {"image_id": image_id, "segments": seg_count, "engine": engine_lc}
+    return {"image_id": image_id, "caption": caption, "segments": seg_count, "engine": engine_lc}
 
 
 async def ingest_homeobjects_images(
@@ -144,7 +155,7 @@ async def ingest_image_api(
         result = await ingest_image_bytes(
             data, image_id=file.filename, uri=None, engine=engine, segment=segment
         )
-        return {"status": "ingested", **result}
+        return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
@@ -168,7 +179,7 @@ async def ingest_image_gemini_api(file: UploadFile = File(...)):
     try:
         data = await file.read()
         result = await ingest_image_bytes(data, image_id=file.filename, engine="gemini")
-        return {"status": "ingested", **result}
+        return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
     
@@ -180,6 +191,6 @@ async def ingest_image_local_api(file: UploadFile = File(...)):
     try:
         data = await file.read()
         result = await ingest_image_bytes(data, image_id=file.filename, engine="siglip")
-        return {"status": "ingested", **result}
+        return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
