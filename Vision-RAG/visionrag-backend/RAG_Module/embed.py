@@ -77,6 +77,7 @@ def caption_image(image_bytes: bytes) -> str:
     img = Image.open(io.BytesIO(image_bytes))
     prompt = (
         "Write ONE plain factual sentence describing the visible objects and scene. "
+        "Focus mostly on objects in the image and add in caption too . "
         "Include brand/model only if clearly readable. No speculation."
     )
     r = model.generate_content([prompt, img])
