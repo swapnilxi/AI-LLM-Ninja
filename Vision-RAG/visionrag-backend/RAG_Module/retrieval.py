@@ -22,7 +22,7 @@ def retrieve_with_siglip(question: str):
     embedding = embed_text_one(question)
     # Run async query_knn in sync context
     loop = asyncio.get_event_loop()
-    results = loop.run_until_complete(query_knn("text_chunks", embedding, k=5))
+    results = loop.run_until_complete(query_knn("vision_rag_text_chunks", embedding, k=5))
     return {"method": "siglip", "question": question, "results": results}
 
 
@@ -44,7 +44,7 @@ def retrieve_with_google_vision(question: str):
     except Exception as e:
         return {"error": f"Google Gemini embedding failed: {str(e)}"}
     loop = asyncio.get_event_loop()
-    results = loop.run_until_complete(query_knn("text_chunks", embedding, k=5))
+    results = loop.run_until_complete(query_knn("vision_rag_text_chunks", embedding, k=5))
     return {"method": "google_vision", "question": question, "results": results}
 
 router = APIRouter()
