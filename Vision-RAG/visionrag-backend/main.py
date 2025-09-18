@@ -18,8 +18,7 @@ from RAG_Module.db import init_pool, init_db, close_pool, check_db_connection
 from RAG_Module.ingest import ingest_router
 from RAG_Module.retrieval import router as retrieval_router
 
-from RAG_Module.retrieval import retrieve_with_siglip
-from RAG_Module.retrieval import retrieve_with_google_vision
+ # Removed imports for retrieve_with_siglip and retrieve_with_google_vision (not found in retrieval.py)
 from prometheus_client import generate_latest
 
 
