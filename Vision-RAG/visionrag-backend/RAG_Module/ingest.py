@@ -4,9 +4,18 @@ Unified ingestion pipeline for images into Postgres/pgvector.
 - Optionally segments with Gemini Vision and stores segment caption embeddings.
 - Writes into canonical tables: vision_rag_images, vision_rag_image_segments.
 """
+
 import os
 import io
 from typing import List, Dict, Optional
+
+# Add tenacity for retry and rate limiting
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError, before_sleep_log
+import logging
+
+# Set up logger for tenacity
+logger = logging.getLogger("tenacity")
+logging.basicConfig(level=logging.INFO)
 
 from PIL import Image
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -108,6 +117,31 @@ async def ingest_homeobjects_images(
     ingested: List[str] = []
     skipped: List[str] = []
 
+
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((Exception,)),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    async def ingest_with_retry(data, fname, img_path, engine, segment):
+        try:
+            await ingest_image_bytes(
+                data,
+                image_id=fname,
+                uri=img_path,
+                engine=engine,
+                segment=segment,
+            )
+        except Exception as e:
+            # If 429 or transient error, let tenacity retry
+            if hasattr(e, 'status_code') and e.status_code == 429:
+                logger.warning(f"429 Too Many Requests for {fname}, retrying...")
+                raise
+            logger.warning(f"Error ingesting {fname}: {e}, retrying...")
+            raise
+
     async with pool.acquire() as conn:
         for fname in os.listdir(dataset_path):
             if not fname.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
@@ -122,14 +156,12 @@ async def ingest_homeobjects_images(
                 continue
             with open(img_path, "rb") as fh:
                 data = fh.read()
-            await ingest_image_bytes(
-                data,
-                image_id=fname,
-                uri=img_path,
-                engine=engine,
-                segment=segment,
-            )
-            ingested.append(fname)
+            try:
+                await ingest_with_retry(data, fname, img_path, engine, segment)
+                ingested.append(fname)
+            except RetryError as re:
+                logger.error(f"Failed to ingest {fname} after retries: {re}")
+                skipped.append(fname)
 
     return {"ingested": ingested, "skipped": skipped}
 

@@ -103,7 +103,8 @@ async def init_db():
                     image_id TEXT,
                     uri TEXT,
                     embedding VECTOR({VECTOR_DIM}),
-                    meta JSONB
+                    meta JSONB,
+                    caption_embedding VECTOR({VECTOR_DIM})
                 );
             """)
 
@@ -114,7 +115,8 @@ async def init_db():
                     bbox FLOAT8[],     -- [x1,y1,x2,y2]
                     caption TEXT,
                     embedding VECTOR({VECTOR_DIM}),
-                    meta JSONB
+                    meta JSONB,
+                    caption_embedding VECTOR({VECTOR_DIM})
                 );
             """)
 
