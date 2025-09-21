@@ -52,3 +52,60 @@ async def main():
             print('Error:')
             if odata_error.error:
                 print(odata_error.error.code, odata_error.error.message)
+
+
+"""
+Ingest Teams data (messages/files) into vector DB using Microsoft Graph API and existing ingestion logic.
+"""
+import os
+import asyncio
+import requests
+from typing import List, Dict, Optional
+from dotenv import load_dotenv
+
+from . import db, embed
+
+# Load environment variables for MS Graph
+load_dotenv()
+MS_GRAPH_TOKEN = os.getenv("MS_GRAPH_TOKEN")  # Bearer token for Graph API
+TEAM_ID = os.getenv("MS_TEAM_ID")             # Team ID to fetch data from
+CHANNEL_ID = os.getenv("MS_CHANNEL_ID")       # Channel ID to fetch messages
+
+GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
+
+
+def get_headers():
+    return {
+        "Authorization": f"Bearer {MS_GRAPH_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+
+def fetch_channel_messages(team_id: str, channel_id: str) -> List[Dict]:
+    url = f"{GRAPH_API_BASE}/teams/{team_id}/channels/{channel_id}/messages"
+    resp = requests.get(url, headers=get_headers())
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("value", [])
+
+
+async def ingest_teams_messages(team_id: str = TEAM_ID, channel_id: str = CHANNEL_ID):
+    pool = db.get_pool()
+    messages = fetch_channel_messages(team_id, channel_id)
+    for msg in messages:
+        text = msg.get("body", {}).get("content", "")
+        if not text.strip():
+            continue
+        # Embed and insert using existing logic
+        embedding = embed.embed_text_one(text, task_type="RETRIEVAL_DOCUMENT")
+        await db.insert_text_chunk(
+            doc_id=msg.get("id"),
+            text=text,
+            embedding=embedding,
+            meta={"source": "teams", "from": msg.get("from", {})}
+        )
+
+# Optionally, add similar logic for files/attachments if needed
+
+if __name__ == "__main__":
+    asyncio.run(ingest_teams_messages())

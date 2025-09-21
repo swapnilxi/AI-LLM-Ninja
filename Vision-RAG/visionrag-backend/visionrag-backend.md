@@ -89,3 +89,6 @@ YOLO_WEIGHTS=/path/to/your_custom_yolo-seg.weights
 - Run query: `POST /query` with `{"question":"...", "image_base64": ...}`
 
 ---
+
+Q: Why not just use Gemini Vision for boxes?
+A: It can work, but YOLO boxes are faster, cheaper, more repeatable at scale, and run offline. For private orgs, that matters.
