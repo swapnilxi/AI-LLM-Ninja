@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { visionRagApi } from "@/lib/api/client";
 import { HealthResponse } from "@/types/api";
 import { Activity, AlertCircle, Database, Wifi, WifiOff } from "lucide-react";

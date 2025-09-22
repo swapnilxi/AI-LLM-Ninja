@@ -151,6 +151,25 @@ def embed_image_siglip(image_bytes: bytes) -> List[float]:
     vec = _l2_normalize(vec)
     return vec
 
+def embed_text_siglip(texts: List[str]) -> np.ndarray:
+    """Compute SigLIP text embeddings for a list of texts, aligned to EMBED_DIM and L2-normalized."""
+    model, processor, torch = _get_siglip()
+    # SigLIP processor supports text tokenization
+    inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
+    with torch.no_grad():
+        feats = model.get_text_features(**inputs)  # shape [N, D]
+    arr = feats.cpu().numpy()
+    # Fit dim + normalize each vector
+    out: List[List[float]] = []
+    for row in arr:
+        v = _fit_dim(row.tolist(), EMBED_DIM)
+        v = _l2_normalize(v)
+        out.append(v)
+    return np.asarray(out, dtype=np.float32)
+
+def embed_text_one_siglip(text: str) -> List[float]:
+    return embed_text_siglip([text])[0].tolist()
+
 def embed_image(image_bytes: bytes, engine: str = "gemini") -> List[float]:
     """
     Unified image embedding interface.

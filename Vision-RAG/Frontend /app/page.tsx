@@ -9,16 +9,16 @@ import { StatusIndicator } from "@/components/vision-rag/status-indicator";
 import { visionRagApi } from "@/lib/api/client";
 import { QueryResponse } from "@/types/api";
 import {
-    ArrowRight,
-    Brain,
-    Database,
-    Eye,
-    Image as ImageIcon,
-    MessageSquare,
-    Search,
-    Sparkles,
-    Upload,
-    Zap
+  ArrowRight,
+  Brain,
+  Database,
+  Eye,
+  Image as ImageIcon,
+  MessageSquare,
+  Search,
+  Sparkles,
+  Upload,
+  Zap
 } from "lucide-react";
 import { useState } from "react";
 
@@ -28,7 +28,7 @@ export default function Home() {
   const [results, setResults] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleQuery = async (query: string, image: string | undefined, k: number) => {
+  const handleQuery = async (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip') => {
     setIsLoading(true);
     setError(null);
     
@@ -36,7 +36,8 @@ export default function Home() {
       const response = await visionRagApi.queryImage({
         question: query,
         image: image,
-        k: k
+        k: k,
+        engine
       });
       
       if (response.error) {

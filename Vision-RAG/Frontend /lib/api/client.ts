@@ -30,6 +30,10 @@ class VisionRAGApi {
       formData.append('k', request.k.toString());
     }
 
+    if (request.engine) {
+      formData.append('engine', request.engine);
+    }
+
     const response = await fetch(createApiUrl('queryImage'), {
       method: 'POST',
       body: formData,
