@@ -1,17 +1,17 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { 
-  TrendingUp, 
-  Clock, 
-  Database, 
-  Zap,
-  Users,
-  CheckCircle,
-  ArrowUp,
-  Activity
-} from "lucide-react";
 import { motion } from "framer-motion";
+import {
+    Activity,
+    ArrowUp,
+    CheckCircle,
+    Clock,
+    Database,
+    TrendingUp,
+    Users,
+    Zap
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 interface Stat {

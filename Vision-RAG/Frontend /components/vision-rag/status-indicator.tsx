@@ -91,46 +91,40 @@ export function StatusIndicator() {
 
   return (
     <Card>
-      <CardHeader className="p-4 pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Activity className="h-4 w-4" />
-          System Status
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-4 pt-0 space-y-2">
-        {/* Backend Status */}
-        <div className="flex items-center justify-between">
+      <CardContent className="px-4 py-3">
+        {/* System Status and Indicators in Row */}
+        <div className="flex items-center gap-4">
+          {/* System Status Label */}
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4" />
+            <span className="text-sm font-medium">System Status</span>
+          </div>
+          
+          {/* Backend Status */}
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${getStatusColor(health.status)}`} />
             <span className="text-sm">Backend</span>
+            <Badge 
+              variant={health.status === 'ok' ? 'default' : 'destructive'} 
+              className="text-xs gap-1"
+            >
+              {getStatusIcon(health.status)}
+              {health.status}
+            </Badge>
           </div>
-          <Badge 
-            variant={health.status === 'ok' ? 'default' : 'destructive'} 
-            className="text-xs gap-1"
-          >
-            {getStatusIcon(health.status)}
-            {health.status}
-          </Badge>
-        </div>
 
-        {/* Database Status */}
-        <div className="flex items-center justify-between">
+          {/* Database Status */}
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${getStatusColor(health.db_connection)}`} />
             <span className="text-sm">Database</span>
+            <Badge 
+              variant={health.db_connection === 'ok' ? 'default' : 'destructive'} 
+              className="text-xs gap-1"
+            >
+              <Database className="h-3 w-3" />
+              {health.db_connection}
+            </Badge>
           </div>
-          <Badge 
-            variant={health.db_connection === 'ok' ? 'default' : 'destructive'} 
-            className="text-xs gap-1"
-          >
-            <Database className="h-3 w-3" />
-            {health.db_connection}
-          </Badge>
-        </div>
-
-        {/* App Info */}
-        <div className="pt-2 border-t border-muted">
-          <p className="text-xs text-muted-foreground">{health.app}</p>
         </div>
       </CardContent>
     </Card>

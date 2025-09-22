@@ -205,6 +205,21 @@ async def ingest_homeobjects_api(engine: str = "gemini", segment: bool = True):
     return {"status": "completed", **result}
 
 
+# ---- Frontend-expected endpoints ----
+@ingest_router.post("/pdf")
+async def ingest_pdf_api(file: UploadFile = File(...)):
+    """
+    Ingest a PDF file (placeholder - not implemented yet).
+    """
+    raise HTTPException(status_code=501, detail="PDF ingestion not implemented yet")
+
+@ingest_router.post("/segments")
+async def ingest_segments_api():
+    """
+    Ingest segments configuration (placeholder - not implemented yet).
+    """
+    raise HTTPException(status_code=501, detail="Segments ingestion not implemented yet")
+
 # ---- Backward-compat endpoints ----
 @ingest_router.post("/image-gemini")
 async def ingest_image_gemini_api(file: UploadFile = File(...)):

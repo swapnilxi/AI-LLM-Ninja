@@ -6,22 +6,19 @@ import { Card, CardContent } from "@/components/ui/card";
 import { QueryForm } from "@/components/vision-rag/query-form";
 import { ResultsDisplay } from "@/components/vision-rag/results-display";
 import { StatusIndicator } from "@/components/vision-rag/status-indicator";
-import { TechStack } from "@/components/vision-rag/tech-stack";
-import { StatsCard } from "@/components/vision-rag/stats-card";
-import { FeatureShowcase } from "@/components/vision-rag/feature-showcase";
 import { visionRagApi } from "@/lib/api/client";
 import { QueryResponse } from "@/types/api";
 import {
-  ArrowRight,
-  Brain,
-  Database,
-  Eye,
-  Image as ImageIcon,
-  MessageSquare,
-  Search,
-  Sparkles,
-  Upload,
-  Zap
+    ArrowRight,
+    Brain,
+    Database,
+    Eye,
+    Image as ImageIcon,
+    MessageSquare,
+    Search,
+    Sparkles,
+    Upload,
+    Zap
 } from "lucide-react";
 import { useState } from "react";
 
@@ -112,17 +109,27 @@ export default function Home() {
                   method={results.method}
                 />
               ) : (
-                <Card className="h-96">
+                <Card className="h-96 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 dark:from-slate-800 dark:via-blue-900 dark:to-purple-900 border-0 shadow-lg">
                   <CardContent className="h-full flex items-center justify-center">
-                    <div className="text-center space-y-4">
-                      <div className="w-16 h-16 mx-auto bg-muted rounded-full flex items-center justify-center">
-                        <Search className="h-8 w-8 text-muted-foreground" />
+                    <div className="text-center space-y-6">
+                      <div className="relative">
+                        <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl animate-pulse">
+                          <Search className="h-10 w-10 text-white" />
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg">
+                          <Sparkles className="h-3 w-3 text-white" />
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-medium mb-2">Ready to Search</h3>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Enter a text query or upload an image to start searching through the knowledge base.
+                      <div className="space-y-3">
+                        <h3 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Ready to Search</h3>
+                        <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
+                          Enter a text query or upload an image to start searching through the knowledge base with AI-powered precision.
                         </p>
+                        <div className="flex items-center justify-center gap-2 pt-2">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}} />
+                          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}} />
+                          <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}} />
+                        </div>
                       </div>
                     </div>
                   </CardContent>
