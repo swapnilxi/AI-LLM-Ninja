@@ -76,9 +76,15 @@ def _detect_mime_from_bytes(data: bytes, fallback: str = "image/jpeg") -> str:
     return fallback
 
 def _load_image_bytes(image: str) -> Tuple[Optional[bytes], Optional[str]]:
-    # CHANGED: RETURN (BYTES, MIME)
+    # CHANGED: RETURN (BYTES, MIME) - HANDLE BASE64 DATA URLS
     try:
-        if image.startswith("http://") or image.startswith("https://"):
+        if image.startswith("data:"):
+            # Handle base64 data URLs from frontend
+            header, data = image.split(",", 1)
+            mime = header.split(":")[1].split(";")[0]
+            data_bytes = base64.b64decode(data)
+            return data_bytes, mime
+        elif image.startswith("http://") or image.startswith("https://"):
             r = _retry_request("GET", image)
             data = r.content
             mime = r.headers.get("Content-Type") or _detect_mime_from_bytes(data)
@@ -281,7 +287,7 @@ def rag_answer(
         "answer": answer
     }
 
-# ---------- Example usage ----------
+
 if __name__ == "__main__":
     # TEXT-ONLY
     resp1 = rag_answer("Summarize our warranty policy for routers.")

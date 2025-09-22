@@ -41,6 +41,6 @@ export interface IngestResponse {
 
 export interface QueryRequest {
   question?: string;
-  image?: string;
+  image?: string | File;
   k?: number;
 }

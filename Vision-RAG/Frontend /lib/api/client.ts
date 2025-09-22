@@ -18,7 +18,12 @@ class VisionRAGApi {
     }
     
     if (request.image) {
-      formData.append('image', request.image);
+      // Handle both File objects and data URLs
+      if (request.image instanceof File) {
+        formData.append('image', request.image);
+      } else {
+        formData.append('image', request.image);
+      }
     }
     
     if (request.k) {
