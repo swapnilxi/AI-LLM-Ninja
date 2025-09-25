@@ -22,6 +22,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 # embedding engines are provided by embed.py
 from . import db
 from . import embed
+from Utils.yolo_infer import detect_with_crops
 
 # ---- Configuration ----
 DATASET_PATH = os.getenv(
@@ -55,6 +56,7 @@ async def ingest_image_bytes(
     uri: Optional[str] = None,
     engine: str = "gemini",
     segment: bool = True,
+    yolo: bool = True,
 ) -> Dict:
     """
     Ingest a single image (bytes) with chosen embedding engine and optional segmentation.
@@ -100,6 +102,31 @@ async def ingest_image_bytes(
                 )
                 seg_count += 1
 
+    # YOLO object regions → embed crop bytes and store as segments
+    if yolo:
+        try:
+            regions = detect_with_crops(image_bytes, conf=0.25, max_regions=12)
+            for r in regions:
+                # Embed the crop bytes using the same engine as the image
+                reg_vec = embed.embed_image(r["crop_bytes"], engine=engine_lc)
+                await db.insert_image_segment(
+                    image_id=image_id,
+                    bbox=r["bbox_xyxy"],
+                    caption=r["cls_name"],
+                    embedding=reg_vec,
+                    meta={
+                        "from": "yolo_detection",
+                        "obj_class": r["cls_name"],
+                        "obj_conf": r["conf"],
+                        "image_w": r["image_w"],
+                        "image_h": r["image_h"],
+                    },
+                )
+                seg_count += 1
+        except Exception as e:
+            # Do not fail ingestion if YOLO is unavailable; just log later if needed
+            pass
+
     return {"image_id": image_id, "caption": caption, "segments": seg_count, "engine": engine_lc}
 
 
@@ -108,6 +135,7 @@ async def ingest_homeobjects_images(
     *,
     engine: str = "gemini",
     segment: bool = True,
+    yolo: bool = True,
 ) -> Dict:
     """
     Bulk-ingest images from a directory into the canonical tables.
@@ -125,7 +153,7 @@ async def ingest_homeobjects_images(
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
-    async def ingest_with_retry(data, fname, img_path, engine, segment):
+    async def ingest_with_retry(data, fname, img_path, engine, segment, yolo):
         try:
             await ingest_image_bytes(
                 data,
@@ -133,6 +161,7 @@ async def ingest_homeobjects_images(
                 uri=img_path,
                 engine=engine,
                 segment=segment,
+                yolo=yolo,
             )
         except Exception as e:
             # If 429 or transient error, let tenacity retry
@@ -157,7 +186,7 @@ async def ingest_homeobjects_images(
             with open(img_path, "rb") as fh:
                 data = fh.read()
             try:
-                await ingest_with_retry(data, fname, img_path, engine, segment)
+                await ingest_with_retry(data, fname, img_path, engine, segment, yolo)
                 ingested.append(fname)
             except RetryError as re:
                 logger.error(f"Failed to ingest {fname} after retries: {re}")
@@ -175,6 +204,7 @@ async def ingest_image_api(
     file: UploadFile = File(...),
     engine: str = "gemini",
     segment: bool = True,
+    yolo: bool = True,
 ):
     """
     Ingest a single image.
@@ -185,7 +215,7 @@ async def ingest_image_api(
     try:
         data = await file.read()
         result = await ingest_image_bytes(
-            data, image_id=file.filename, uri=None, engine=engine, segment=segment
+            data, image_id=file.filename, uri=None, engine=engine, segment=segment, yolo=yolo
         )
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
@@ -193,13 +223,13 @@ async def ingest_image_api(
 
 
 @ingest_router.post("/homeobjects")
-async def ingest_homeobjects_api(engine: str = "gemini", segment: bool = True):
+async def ingest_homeobjects_api(engine: str = "gemini", segment: bool = True, yolo: bool = True):
     """
     Ingest all images from the HomeObjects-3k dataset folder,
     skipping those already present in the vector DB.
     """
     try:
-        result = await ingest_homeobjects_images(engine=engine, segment=segment)
+        result = await ingest_homeobjects_images(engine=engine, segment=segment, yolo=yolo)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Bulk ingestion error: {str(e)}")
     return {"status": "completed", **result}
@@ -229,7 +259,7 @@ async def ingest_image_gemini_api(file: UploadFile = File(...)):
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
-    
+
 @ingest_router.post("/image-local")
 async def ingest_image_local_api(file: UploadFile = File(...)):
     """

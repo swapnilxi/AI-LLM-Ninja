@@ -4,10 +4,11 @@ from fastapi.responses import JSONResponse, FileResponse
 import os
 import json
 import asyncio
-from typing import Optional
+from typing import Optional, List, Dict
 from .retrieval_gemini import gemini_embed_text, _load_image_bytes, gemini_caption_image_json
 from .embed import embed_image, embed_text_one_siglip
 from .db import query_knn
+from yolo_module.yolo_infer import detect_with_crops
 from urllib.parse import quote
 
 router = APIRouter()
@@ -28,7 +29,8 @@ async def retrieve_images(
     query_text: Optional[str] = None,
     image: Optional[str] = None,
     k: int = 5,
-    engine: Optional[str] = None
+    engine: Optional[str] = None,
+    yolo: bool = False,
 ) -> dict:
     embedding = None
     method = ""
@@ -80,14 +82,63 @@ async def retrieve_images(
                 except Exception as e2:
                     return {"error": f"Failed to generate text embedding: {e}, {e2}"}
 
-    if embedding is None:
+    # Region-based search using YOLO (optional)
+    results_regions: List[Dict] = []
+    if image and yolo:
+        try:
+            regions = detect_with_crops(img_bytes, conf=0.25, max_regions=8)
+            for r in regions:
+                vec = embed_image(r["crop_bytes"], engine=eng)
+                # search in segments table; include image_id and meta for UI
+                seg_hits = await query_knn("vision_rag_image_segments", vec, k=k, extra_cols=["image_id", "meta"])
+                # annotate hits with matched query region
+                for h in seg_hits:
+                    md = h.get("meta")
+                    if isinstance(md, str):
+                        try:
+                            md = json.loads(md)
+                        except Exception:
+                            md = {}
+                    md = md or {}
+                    md["matched_query_bbox"] = r["bbox_xyxy"]
+                    md["matched_query_obj_class"] = r["cls_name"]
+                    h["meta"] = md
+                results_regions.extend(seg_hits)
+        except Exception:
+            # ignore YOLO failure to keep base flow working
+            pass
+
+    if embedding is None and not results_regions:
         return {"error": "Failed to generate embedding."}
 
-    try:
-        # Use the correct table name from your database schema
-        results = await query_knn("vision_rag_images", embedding, k=k, extra_cols=["uri", "meta"])
-    except Exception as e:
-        return {"error": f"DB retrieval failed: {e}"}
+    # Base image/text retrieval against images table
+    results = []
+    if embedding is not None:
+        try:
+            results = await query_knn("vision_rag_images", embedding, k=k, extra_cols=["uri", "meta"])
+        except Exception as e:
+            return {"error": f"DB retrieval failed: {e}"}
+
+    # Merge region results and base results
+    def _merge_sets(a: List[Dict], b: List[Dict], top_k: int) -> List[Dict]:
+        by_key = {}
+        def _key(x):
+            md = x.get("meta")
+            if isinstance(md, str):
+                try:
+                    md = json.loads(md)
+                except Exception:
+                    md = {}
+            img_id = x.get("image_id") or (md or {}).get("image_id") or (md or {}).get("id") or x.get("id")
+            return img_id
+        for x in a + b:
+            k_ = _key(x)
+            if k_ not in by_key or float(x.get("score", 0)) > float(by_key[k_].get("score", 0)):
+                by_key[k_] = x
+        merged = sorted(by_key.values(), key=lambda r: -float(r.get("score", 0)))
+        return merged[:top_k]
+
+    merged_results = _merge_sets(results, results_regions, k)
 
     return {
         "method": method,
@@ -106,7 +157,7 @@ async def retrieve_images(
                     "image_url": result.get("uri") or result.get("content"),
                 }
             }
-            for result in results
+            for result in merged_results
         ]
     }
 
@@ -127,7 +178,8 @@ async def query_image(
     question: Optional[str] = Form(None),
     image: Optional[str] = Form(None),
     k: int = Form(5),
-    engine: Optional[str] = Form(None)
+    engine: Optional[str] = Form(None),
+    yolo: Optional[bool] = Form(False),
 ):
     """
     Unified endpoint: retrieve images by text or image (or both).
@@ -136,7 +188,7 @@ async def query_image(
     if image and image.strip():
         image_path = image.strip()
 
-    result = await retrieve_images(query_text=question, image=image_path, k=k, engine=engine)
+    result = await retrieve_images(query_text=question, image=image_path, k=k, engine=engine, yolo=bool(yolo))
 
     # Post-process to ensure image URLs are resolvable from the browser
     for item in result.get("results", []):

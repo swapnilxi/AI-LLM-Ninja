@@ -10,4 +10,4 @@ torch.hub.download_url_to_file(
 # unzip
 import zipfile
 with zipfile.ZipFile("homeobjects-3k.zip", 'r') as zip_ref:
-    zip_ref.extractall("datasets/")
+    zip_ref.extractall("homeobjects-dataset/")
