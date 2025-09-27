@@ -2,6 +2,11 @@
 
 **VisionRAG** is a **Vision + Retrieval-Augmented Generation (RAG)** system to answer questions over room datasets. It leverages YOLO-seg for fine-grained segmentation, Gemini for captions and embeddings, and **PostgreSQL + pgvector (Neon)** as the unified datastore for efficient multimodal retrieval.
 
+LLM used - Gemini Vision
+Local Modal used- SigLip
+Yolo Modal used- yolo11n-seg
+
+
 ---
 
 ## 1. Project Structure & Data Flow
@@ -20,11 +25,17 @@ visionrag-backend/
 │   ├── rag.py                    # Gemini LLM integration
 │   ├── embed.py                  # Gemini embedding APIs
 │   └── main.py                   # FastAPI endpoints (ingest, query, query-google, query-sigLip, serve images)
-├── room_dataset/                  # Local data storage
-│   ├── train/                    # Training images
-│   ├── val/                      # Validation images
-│   ├── test/                     # Test images
-│   └── annotation/               # YOLO-format label files
+├── Room_Dataset/
+├── HomeObjects_dataset/                   # Local data storage
+|   ├─ images/ 
+│   | |── train/                    # Training images
+│   | ├── val/                      # Validation images
+│   | ├── test/                     # Test images
+│   └── labels/                     # YOLO-format label files
+├── Yolo_module/
+|   ├── yolo/
+|   ├── yolo_gemini_pipeline/ 
+|   ├── /                 
 ├── pyproject.toml                 # uv / project config
 ├── .env                           # API key & DB credentials
 └── README.md                      # This file
