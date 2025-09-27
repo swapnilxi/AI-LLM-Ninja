@@ -159,7 +159,17 @@ async def insert_text_chunk(doc_id: str, text: str, embedding: List[float], meta
         )
 
 
+async def image_exists_by_uri(uri: str) -> bool:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM vision_rag_images WHERE uri = $1 LIMIT 1", uri)
+        return row is not None
+
+
 async def insert_image(image_id: str, uri: str, embedding: List[float], meta: Optional[Dict[str, Any]] = None):
+    if await image_exists_by_uri(uri):
+        print(f"Image with uri '{uri}' already exists. Skipping insert.")
+        return
     caption_embedding = None
     if meta and "caption_embedding" in meta:
         caption_embedding = meta["caption_embedding"]
