@@ -15,7 +15,7 @@ GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004
 EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
 
 # Init Gemini
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
 # ---- Internal helpers ----
 def _l2_normalize(vec: List[float]) -> List[float]:
