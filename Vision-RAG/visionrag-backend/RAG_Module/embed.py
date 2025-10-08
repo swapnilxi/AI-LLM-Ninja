@@ -10,8 +10,8 @@ from PIL import Image
 import google.generativeai as genai
 
 # ---- Config ----
-GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-1.5-flash")
-GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
+GEMINI_VISION_MODEL = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+GEMINI_EMBEDDING_MODEL = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
 EMBED_DIM = int(os.getenv("EMBED_DIM", "768"))
 
 # Init Gemini
@@ -53,17 +53,37 @@ def align_vector(vec: List[float], dim: int = EMBED_DIM, normalize: bool = True)
 # ---- Public: text embeddings ----
 def embed_text(texts: List[str], *, task_type: str = "RETRIEVAL_DOCUMENT") -> np.ndarray:
     """
-    Embeds a list of texts using text-embedding-004 and L2-normalizes each vector.
-    task_type: 'RETRIEVAL_DOCUMENT' for corpus items, 'RETRIEVAL_QUERY' for queries.
+    Batched embeddings with L2-normalization. Uses batch API if available, otherwise falls back to manual chunking.
     """
-    out: List[List[float]] = []
-    for t in texts:
-        resp = genai.embed_content(model=GEMINI_EMBEDDING_MODEL, content=t, task_type=task_type)
-        vec = resp["embedding"]
-        vec = _fit_dim(vec, EMBED_DIM)
-        vec = _l2_normalize(vec)    # using L2 distance in pgvector → normalize for cosine-like ranking
-        out.append(vec)
-    return np.asarray(out, dtype=np.float32)
+    if not texts:
+        return np.zeros((0, EMBED_DIM), dtype=np.float32)
+
+    # --- Old code for reference ---
+    # out: List[List[float]] = []
+    # for t in texts:
+    #     resp = genai.embed_content(model=GEMINI_EMBEDDING_MODEL, content=t, task_type=task_type)
+    #     vec = _fit_dim(resp["embedding"], EMBED_DIM)
+    #     vec = _l2_normalize(vec)    # using L2 distance in pgvector → normalize for cosine-like ranking
+    #     out.append(vec)
+    # return np.asarray(out, dtype=np.float32)
+
+    # --- New batch-enabled code ---
+    if hasattr(genai, "batch_embed_contents"):
+        resp = genai.batch_embed_contents(model=GEMINI_EMBEDDING_MODEL, contents=texts, task_type=task_type)
+        # Assume resp is a list of dicts with "embedding" key
+        out = []
+        for r in resp:
+            vec = _fit_dim(r["embedding"], EMBED_DIM)
+            out.append(_l2_normalize(vec))
+        return np.asarray(out, dtype=np.float32)
+    else:
+        # Fallback: manual chunking
+        out: List[List[float]] = []
+        for t in texts:
+            resp = genai.embed_content(model=GEMINI_EMBEDDING_MODEL, content=t, task_type=task_type)
+            vec = _fit_dim(resp["embedding"], EMBED_DIM)
+            out.append(_l2_normalize(vec))
+        return np.asarray(out, dtype=np.float32)
 
 def embed_text_one(text: str, *, task_type: str = "RETRIEVAL_DOCUMENT") -> List[float]:
     return embed_text([text], task_type=task_type)[0].tolist()
@@ -115,7 +135,7 @@ def embed_image_via_caption(image_bytes: bytes) -> List[float]:
     """
     Converts an image to a retrieval vector by:
     1) captioning with Gemini Vision,
-    2) embedding the caption text with text-embedding-004,
+    2) embedding the caption text with gemini-embedding-001,
     3) L2-normalizing to be comparable under vector_l2_ops.
     """
     cap = caption_image(image_bytes)
@@ -173,7 +193,7 @@ def embed_text_one_siglip(text: str) -> List[float]:
 def embed_image(image_bytes: bytes, engine: str = "gemini") -> List[float]:
     """
     Unified image embedding interface.
-    - engine='gemini': caption with Gemini Vision then text-embedding-004
+    - engine='gemini': caption with Gemini Vision then gemini-embedding-001
     - engine='siglip': local SigLIP image features
     Returns an EMBED_DIM-sized, L2-normalized vector.
     """

@@ -1,6 +1,8 @@
 """
+# yolo_infer.py
 Lightweight YOLO inference helpers.
 - Loads ultralytics YOLO model once using YOLO_WEIGHTS from env (default: yolov8n.pt)
+- Thread-safe model initialization with device selection support
 - Provides detection on image path or bytes
 - Returns segments (bytes) and metadata for each detection
 """
@@ -8,6 +10,7 @@ Lightweight YOLO inference helpers.
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Dict, Any, Union
 from io import BytesIO
@@ -17,17 +20,43 @@ from PIL import Image
 YOLO_WEIGHTS = os.getenv("YOLO_WEIGHTS", "yolov8n.pt")
 YOLO_CONF = float(os.getenv("YOLO_CONF", "0.25"))
 YOLO_MAX_REGIONS = int(os.getenv("YOLO_MAX_REGIONS", "12"))
+YOLO_DEVICE = os.getenv("YOLO_DEVICE", "")  # Empty string means auto-select (cuda if available)
 
 _yolo_model = None
 _yolo_names = None
+_yolo_device = YOLO_DEVICE  # Store current device setting
+_yolo_lock = threading.Lock()  # Lock for thread-safe initialization
+
+
+def set_yolo_device(device: str = ""):
+    """
+    Set the device for YOLO model inference.
+    
+    Args:
+        device: Device to use ("cpu", "cuda:0", etc.)
+               Empty string means auto-select
+    """
+    global _yolo_device, _yolo_model
+    _yolo_device = device
+    
+    # Reset model to force reloading with new device
+    with _yolo_lock:
+        _yolo_model = None
 
 
 def _load_model():
     global _yolo_model, _yolo_names
     if _yolo_model is None:
-        from ultralytics import YOLO  # lazy import
-        _yolo_model = YOLO(YOLO_WEIGHTS)
-        _yolo_names = _yolo_model.names
+        with _yolo_lock:  # Thread-safe initialization
+            if _yolo_model is None:  # Double-check pattern
+                from ultralytics import YOLO  # lazy import
+                if _yolo_device:
+                    # Pass device explicitly if configured
+                    _yolo_model = YOLO(YOLO_WEIGHTS).to(_yolo_device)
+                else:
+                    # Let Ultralytics choose the device
+                    _yolo_model = YOLO(YOLO_WEIGHTS)
+                _yolo_names = _yolo_model.names
     return _yolo_model, _yolo_names
 
 
@@ -92,3 +121,5 @@ def detect_with_segments(source: Union[str, bytes], conf: Optional[float] = None
             "segment_bytes": segment_bytes,
         })
     return out
+
+detect_with_crops = detect_with_segments
