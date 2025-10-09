@@ -96,7 +96,7 @@ DB_DSN=postgresql://user:password@host/db?sslmode=require
 YOLO_WEIGHTS=/path/to/your_custom_yolo-seg.weights
 ```
 
-- Run ingest: `POST /ingest/pdf` or `/ingest/segments`
+- Run ingest: `POST /ingest/pdf`
 - Run query: `POST /query` with `{"question":"...", "image_base64": ...}`
 
 ---

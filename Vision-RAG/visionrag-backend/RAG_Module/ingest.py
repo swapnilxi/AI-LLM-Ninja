@@ -501,68 +501,33 @@ async def ingest_pdf_api(file: UploadFile = File(...)):
     """
     raise HTTPException(status_code=501, detail="PDF ingestion not implemented yet")
 
-@ingest_router.post("/segments")
-async def ingest_segments_api():
-    """
-    Ingest segments configuration (placeholder - not implemented yet).
-    """
-    raise HTTPException(status_code=501, detail="Segments ingestion not implemented yet")
 
-@ingest_router.post("/yolo-analyze")
-async def analyze_yolo_detections(
-    file: UploadFile = File(...),
-    conf_threshold: float = Query(0.25, description="Confidence threshold for YOLO detections", ge=0.0, le=1.0),
-    max_regions: int = Query(12, description="Maximum number of regions to process", ge=1, le=50),
-):
+
+
+# ---- ingestion endpoints ----
+@ingest_router.post("/image-gemini")
+async def ingest_image_gemini_api(file: UploadFile = File(...)):
+    try:
+        data = await file.read()
+        result = await ingest_image_bytes(data, image_id=file.filename, engine="gemini")
+        return {"status": "ingested", "caption": result.get("caption"), **result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
+
+@ingest_router.post("/image-local")
+async def ingest_image_local_api(file: UploadFile = File(...)):
     """
-    Analyze an image with YOLO and return detected objects without ingesting into the database.
-    Useful for testing the YOLO detection pipeline or previewing what would be detected.
-    
-    Query params:
-      - conf_threshold: Minimum confidence for YOLO detections (default: 0.25)
-      - max_regions: Maximum number of regions to process (default: 12)
-    
-    Returns detected objects with their bounding boxes, classes, and confidence scores.
+    Ingest a single image using SigLIP (local) embeddings.
     """
     try:
         data = await file.read()
-        # Run YOLO detection in a thread to avoid blocking the event loop
-        regions = await run_blocking(detect_with_crops, data, conf=conf_threshold, max_regions=max_regions)
-        
-        # Convert results to a more friendly format for API response
-        results = []
-        for r in regions:
-            result_dict = {
-                "class": r["cls_name"],
-                "confidence": float(r["conf"]),
-                "bbox": r["bbox_xyxy"],
-                "coord_space": "pixel",  # Explicitly mark coordinate system
-                "image_dimensions": {
-                    "width": r["image_w"],
-                    "height": r["image_h"]
-                }
-            }
-            # Include segment bytes base64 encoded if needed in frontend
-            # from base64 import b64encode
-            # result_dict["segment_base64"] = b64encode(r["segment_bytes"]).decode('utf-8')
-            
-            results.append(result_dict)
-        
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "detection_count": len(results),
-            "detections": results,
-            "parameters": {
-                "conf_threshold": conf_threshold,
-                "max_regions": max_regions
-            }
-        }
+        result = await ingest_image_bytes(data, image_id=file.filename, engine="siglip")
+        return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
-        logger.error(f"YOLO analysis error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"YOLO analysis error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
 # ---- YOLO-specific endpoints ----
+
 @ingest_router.post("/yolo")
 async def ingest_image_yolo_api(
     file: UploadFile = File(...),
@@ -646,24 +611,57 @@ async def ingest_yolo_batch_api(
         "errors": errors
     }
 
-# ---- Backward-compat endpoints ----
-@ingest_router.post("/image-gemini")
-async def ingest_image_gemini_api(file: UploadFile = File(...)):
-    try:
-        data = await file.read()
-        result = await ingest_image_bytes(data, image_id=file.filename, engine="gemini")
-        return {"status": "ingested", "caption": result.get("caption"), **result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
-@ingest_router.post("/image-local")
-async def ingest_image_local_api(file: UploadFile = File(...)):
+@ingest_router.post("/yolo-analyze-test")
+async def analyze_yolo_detections(
+    file: UploadFile = File(...),
+    conf_threshold: float = Query(0.25, description="Confidence threshold for YOLO detections", ge=0.0, le=1.0),
+    max_regions: int = Query(12, description="Maximum number of regions to process", ge=1, le=50),
+):
     """
-    Ingest a single image using SigLIP (local) embeddings.
+    Analyze an image with YOLO and return detected objects without ingesting into the database.
+    Useful for testing the YOLO detection pipeline or previewing what would be detected.
+    
+    Query params:
+      - conf_threshold: Minimum confidence for YOLO detections (default: 0.25)
+      - max_regions: Maximum number of regions to process (default: 12)
+    
+    Returns detected objects with their bounding boxes, classes, and confidence scores.
     """
     try:
         data = await file.read()
-        result = await ingest_image_bytes(data, image_id=file.filename, engine="siglip")
-        return {"status": "ingested", "caption": result.get("caption"), **result}
+        # Run YOLO detection in a thread to avoid blocking the event loop
+        regions = await run_blocking(detect_with_crops, data, conf=conf_threshold, max_regions=max_regions)
+        
+        # Convert results to a more friendly format for API response
+        results = []
+        for r in regions:
+            result_dict = {
+                "class": r["cls_name"],
+                "confidence": float(r["conf"]),
+                "bbox": r["bbox_xyxy"],
+                "coord_space": "pixel",  # Explicitly mark coordinate system
+                "image_dimensions": {
+                    "width": r["image_w"],
+                    "height": r["image_h"]
+                }
+            }
+            # Include segment bytes base64 encoded if needed in frontend
+            # from base64 import b64encode
+            # result_dict["segment_base64"] = b64encode(r["segment_bytes"]).decode('utf-8')
+            
+            results.append(result_dict)
+        
+        return {
+            "status": "success",
+            "filename": file.filename,
+            "detection_count": len(results),
+            "detections": results,
+            "parameters": {
+                "conf_threshold": conf_threshold,
+                "max_regions": max_regions
+            }
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
+        logger.error(f"YOLO analysis error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"YOLO analysis error: {str(e)}")

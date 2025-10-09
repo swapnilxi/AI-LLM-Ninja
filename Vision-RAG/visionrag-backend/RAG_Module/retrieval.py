@@ -6,6 +6,7 @@ import json
 import asyncio
 from typing import Optional, List, Dict
 from .retrieval_gemini import gemini_embed_text, _load_image_bytes, gemini_caption_image_json
+from .retrieval_yolo import query_segments, answer_from_segments
 from .embed import embed_image, embed_text_one_siglip
 from .db import query_knn
 from yolo_module.yolo_infer import detect_with_crops
