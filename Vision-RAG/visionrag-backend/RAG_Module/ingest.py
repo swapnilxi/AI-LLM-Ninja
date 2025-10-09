@@ -11,6 +11,7 @@ import os
 import io
 import time
 import threading
+import functools
 from typing import List, Dict, Optional, Union, Tuple, Any, Callable, TypeVar
 
 # Add tenacity for retry and rate limiting
@@ -83,7 +84,12 @@ async def run_blocking(func: Callable[..., T], *args, **kwargs) -> T:
     Returns:
         The result of the function call
     """
-    return await anyio.to_thread.run_sync(func, *args, **kwargs)
+    # Create a wrapper that properly binds kwargs
+    if kwargs:
+        bound_func = functools.partial(func, *args, **kwargs)
+        return await anyio.to_thread.run_sync(bound_func)
+    else:
+        return await anyio.to_thread.run_sync(func, *args)
 
 @retry(
     stop=stop_after_attempt(GEMINI_MAX_RETRIES),
@@ -190,19 +196,19 @@ async def ingest_yolo_segments(
     if store_full_image:
         # Run all embedding operations with retry logic
         img_vec = await run_gemini_with_retry(embed.embed_image, image_bytes, engine=engine_lc)
-        caption = await run_gemini_with_retry(embed.caption_image, image_bytes, temperature=0.0)  # Use temperature=0 for determinism
+        caption = await run_gemini_with_retry(embed.caption_image, image_bytes)
         caption_embedding = await run_gemini_with_retry(embed.embed_text_one, caption, task_type="RETRIEVAL_DOCUMENT")
         
         await db.insert_image(
             image_id=image_id,
             uri=uri,
             embedding=img_vec,
-            caption_embedding=caption_embedding,  # Store in dedicated column
             meta={
                 "source": "dataset" if uri else "upload",
                 "engine": engine_lc,
                 "caption": caption,
                 "processing": "yolo_pipeline",
+                "caption_embedding": caption_embedding,  # Store in meta for db.insert_image to extract
             },
         )
     
@@ -215,8 +221,19 @@ async def ingest_yolo_segments(
         max_regions
     )
     
+    # Retrieve caption from database if full image was stored
+    caption_result = None
+    if store_full_image:
+        pool = db.get_pool()
+        async with pool.acquire() as conn:
+            caption_result = await conn.fetchval(
+                "SELECT meta->>'caption' FROM vision_rag_images WHERE image_id=$1",
+                image_id,
+            )
+    
     return {
         "image_id": image_id,
+        "caption": caption_result,
         "segments": segments_count,
         "engine": engine_lc,
         "full_image_stored": store_full_image
@@ -240,25 +257,25 @@ async def ingest_image_bytes(
     
     # Run all embedding operations in threads with retry logic
     img_vec = await run_gemini_with_retry(embed.embed_image, image_bytes, engine=engine_lc)
-    caption = await run_gemini_with_retry(embed.caption_image, image_bytes, temperature=0.0)  # Use temperature=0 for deterministic outputs
+    caption = await run_gemini_with_retry(embed.caption_image, image_bytes)
     caption_embedding = await run_gemini_with_retry(embed.embed_text_one, caption, task_type="RETRIEVAL_DOCUMENT")
 
     await db.insert_image(
         image_id=image_id,
         uri=uri,
         embedding=img_vec,
-        caption_embedding=caption_embedding,  # Store in dedicated column instead of meta
         meta={
             "source": "dataset" if uri else "upload",
             "engine": engine_lc,
             "caption": caption,
+            "caption_embedding": caption_embedding,  # Store in meta for db.insert_image to extract
         },
     )
 
     seg_count = 0
     if segment:
-        # Run segmentation in a thread with retry logic and use temperature=0 for deterministic outputs
-        segs = await run_gemini_with_retry(embed.segment_image, image_bytes, max_items=10, temperature=0.0)
+        # Run segmentation in a thread with retry logic
+        segs = await run_gemini_with_retry(embed.segment_image, image_bytes, max_items=10)
         if segs:
             # Open image in a thread to avoid blocking
             img = await run_blocking(lambda: Image.open(io.BytesIO(image_bytes)).convert("RGB"))
@@ -275,12 +292,12 @@ async def ingest_image_bytes(
                     bbox=bbox_xyxy,
                     caption=seg_cap,
                     embedding=seg_vec,
-                    caption_embedding=seg_vec,  # Store in dedicated column
                     meta={
                         "from": "gemini_pct_bbox",
                         "caption": seg_cap,
                         "orig_bbox_pct": s["bbox"],  # Store original percentage bbox
                         "coord_space": "pixel",  # Explicitly mark as pixel coordinates (converted from percentages)
+                        "caption_embedding": seg_vec,  # Store in meta for db.insert_image_segment to extract
                     },
                 )
                 seg_count += 1
@@ -391,7 +408,7 @@ def configure_yolo_device(device: str = ""):
 ingest_router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 
-@ingest_router.post("/image")
+@ingest_router.post("/image:llm")
 async def ingest_image_api(
     file: UploadFile = File(...),
     engine: str = "gemini",
@@ -412,6 +429,49 @@ async def ingest_image_api(
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
+
+@ingest_router.post("/images:yolo")
+async def ingest_image_yolo_api(
+    file: UploadFile = File(...),
+    conf_threshold: float = Query(0.25, description="Confidence threshold for YOLO detections", ge=0.0, le=1.0),
+    max_regions: int = Query(12, description="Maximum number of regions to process", ge=1, le=50),
+    embedding_engine: str = Query("gemini", description="Engine for embedding generation ('gemini' or 'siglip')"),
+    store_full_image: bool = Query(True, description="Whether to also store the full image embedding"),
+):
+    """
+    Ingest a single image using YOLO for object detection and segmentation.
+    
+    - Detects objects in the image using YOLO
+    - Embeds each detected region and stores as image segments
+    - Optionally embeds and stores the full image
+    
+    Query params:
+      - conf_threshold: Minimum confidence for YOLO detections (default: 0.25)
+      - max_regions: Maximum number of regions to process (default: 12)
+      - embedding_engine: 'gemini' or 'siglip' (default: 'gemini')
+      - store_full_image: Whether to also store the full image embedding (default: true)
+    """
+    try:
+        data = await file.read()
+        result = await ingest_yolo_segments(
+            data, 
+            image_id=file.filename, 
+            uri=None,
+            conf_threshold=conf_threshold,
+            max_regions=max_regions,
+            embedding_engine=embedding_engine,
+            store_full_image=store_full_image
+        )
+        return {
+            "status": "ingested", 
+            "caption": result.get("caption"), 
+            "segments_detected": result.get("segments"), 
+            **result
+        }
+    except Exception as e:
+        logger.error(f"YOLO ingestion error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"YOLO ingestion error: {str(e)}")
+
 
 
 @ingest_router.post("/homeobjects")
@@ -527,44 +587,6 @@ async def ingest_image_local_api(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
 
 # ---- YOLO-specific endpoints ----
-
-@ingest_router.post("/yolo")
-async def ingest_image_yolo_api(
-    file: UploadFile = File(...),
-    conf_threshold: float = Query(0.25, description="Confidence threshold for YOLO detections", ge=0.0, le=1.0),
-    max_regions: int = Query(12, description="Maximum number of regions to process", ge=1, le=50),
-    embedding_engine: str = Query("gemini", description="Engine for embedding generation ('gemini' or 'siglip')"),
-    store_full_image: bool = Query(True, description="Whether to also store the full image embedding"),
-):
-    """
-    Ingest a single image using YOLO for object detection and segmentation.
-    
-    - Detects objects in the image using YOLO
-    - Embeds each detected region and stores as image segments
-    - Optionally embeds and stores the full image
-    
-    Query params:
-      - conf_threshold: Minimum confidence for YOLO detections (default: 0.25)
-      - max_regions: Maximum number of regions to process (default: 12)
-      - embedding_engine: 'gemini' or 'siglip' (default: 'gemini')
-      - store_full_image: Whether to also store the full image embedding (default: true)
-    """
-    try:
-        data = await file.read()
-        result = await ingest_yolo_segments(
-            data, 
-            image_id=file.filename, 
-            uri=None,
-            conf_threshold=conf_threshold,
-            max_regions=max_regions,
-            embedding_engine=embedding_engine,
-            store_full_image=store_full_image
-        )
-        return {"status": "ingested", "segments_detected": result.get("segments"), **result}
-    except Exception as e:
-        logger.error(f"YOLO ingestion error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"YOLO ingestion error: {str(e)}")
-
 @ingest_router.post("/yolo/batch")
 async def ingest_yolo_batch_api(
     files: List[UploadFile] = File(...),
