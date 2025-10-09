@@ -14,7 +14,9 @@ export interface VisionRAGResult {
     caption?: string;
     source?: string;
     engine?: string;
-    image_url?: string;
+  image_url?: string;
+  // optionally provided by backend to prefix local file paths
+  image_base_url?: string;
   };
 }
 
@@ -43,4 +45,5 @@ export interface QueryRequest {
   question?: string;
   image?: string | File;
   k?: number;
+  engine?: 'gemini' | 'siglip';
 }

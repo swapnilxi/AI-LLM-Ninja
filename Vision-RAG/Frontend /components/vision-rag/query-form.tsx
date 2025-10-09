@@ -10,7 +10,7 @@ import { useState } from "react";
 import { ImageUpload } from "./image-upload";
 
 interface QueryFormProps {
-  onSubmit: (query: string, image: string | undefined, k: number) => void;
+  onSubmit: (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip') => void;
   isLoading: boolean;
 }
 
@@ -18,11 +18,12 @@ export function QueryForm({ onSubmit, isLoading }: QueryFormProps) {
   const [query, setQuery] = useState("");
   const [image, setImage] = useState<string | undefined>();
   const [k, setK] = useState(5);
+  const [engine, setEngine] = useState<'gemini' | 'siglip'>("gemini");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim() || image) {
-      onSubmit(query.trim(), image, k);
+      onSubmit(query.trim(), image, k, engine);
     }
   };
 
@@ -113,6 +114,27 @@ export function QueryForm({ onSubmit, isLoading }: QueryFormProps) {
                 onChange={(e) => setK(Math.max(1, parseInt(e.target.value) || 1))}
                 className="border-2 border-gray-200 dark:border-gray-700 focus:border-purple-500 dark:focus:border-purple-400 bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm transition-all duration-200 shadow-sm"
               />
+            </div>
+          </div>
+
+          {/* Model Selector */}
+          <div className="space-y-3">
+            <Label htmlFor="engine" className="flex items-center gap-2 text-sm font-medium">
+              <div className="w-5 h-5 bg-gradient-to-br from-indigo-500 to-blue-600 rounded-md flex items-center justify-center">
+                <Sparkles className="h-3 w-3 text-white" />
+              </div>
+              Model
+            </Label>
+            <div className="relative w-48">
+              <select
+                id="engine"
+                value={engine}
+                onChange={(e) => setEngine(e.target.value as 'gemini' | 'siglip')}
+                className="w-full appearance-none rounded-md border-2 border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-slate-800/80 py-2 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="gemini">Gemini (Vision + Embeddings)</option>
+                <option value="siglip">SigLIP (Local embeddings)</option>
+              </select>
             </div>
           </div>
 

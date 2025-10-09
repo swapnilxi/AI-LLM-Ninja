@@ -10,7 +10,7 @@ load_dotenv(find_dotenv(usecwd=True), override=False)
 
 # ---- Configuration ----
 DB_DSN = os.getenv("DB_URL")  # e.g. postgresql://user:pass@host/db?sslmode=require
-VECTOR_DIM = int(os.getenv("EMBED_DIM", "768"))  # Gemini text-embedding-004 = 768
+VECTOR_DIM = int(os.getenv("EMBED_DIM", "768"))  # Gemini gemini-embedding-001 = 768
 IVF_LISTS = int(os.getenv("IVF_LISTS", "100"))   # tweak after you have data
 IVF_PROBES = int(os.getenv("IVF_PROBES", "10"))  # query-time probes
 STATEMENT_TIMEOUT_MS = int(os.getenv("PG_STATEMENT_TIMEOUT_MS", "15000"))
@@ -83,56 +83,88 @@ async def init_db():
     Safe to call multiple times.
     """
     pool = get_pool()
-    async with pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                try:
+                    await conn.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+                except Exception as e:
+                    print("Error creating extension:", e)
+                    raise
 
-            await conn.execute(f"""
-                CREATE TABLE IF NOT EXISTS vision_rag_text_chunks (
-                    id BIGSERIAL PRIMARY KEY,
-                    doc_id TEXT,
-                    text   TEXT,
-                    embedding VECTOR({VECTOR_DIM}),
-                    meta JSONB
-                );
-            """)
+                try:
+                    await conn.execute(f"""
+                        CREATE TABLE IF NOT EXISTS vision_rag_text_chunks (
+                            id BIGSERIAL PRIMARY KEY,
+                            doc_id TEXT,
+                            text   TEXT,
+                            embedding VECTOR({VECTOR_DIM}),
+                            meta JSONB
+                        );
+                    """)
+                except Exception as e:
+                    print("Error creating vision_rag_text_chunks table:", e)
+                    raise
 
-            await conn.execute(f"""
-                CREATE TABLE IF NOT EXISTS vision_rag_images (
-                    id BIGSERIAL PRIMARY KEY,
-                    image_id TEXT,
-                    uri TEXT,
-                    embedding VECTOR({VECTOR_DIM}),
-                    meta JSONB,
-                    caption_embedding VECTOR({VECTOR_DIM})
-                );
-            """)
+                try:
+                    await conn.execute(f"""
+                        CREATE TABLE IF NOT EXISTS vision_rag_images (
+                            id BIGSERIAL PRIMARY KEY,
+                            image_id TEXT,
+                            uri TEXT,
+                            embedding VECTOR({VECTOR_DIM}),
+                            meta JSONB,
+                            caption_embedding VECTOR({VECTOR_DIM})
+                        );
+                    """)
+                except Exception as e:
+                    print("Error creating vision_rag_images table:", e)
+                    raise
 
-            await conn.execute(f"""
-                CREATE TABLE IF NOT EXISTS vision_rag_image_segments (
-                    id BIGSERIAL PRIMARY KEY,
-                    image_id TEXT,
-                    bbox FLOAT8[],     -- [x1,y1,x2,y2]
-                    caption TEXT,
-                    embedding VECTOR({VECTOR_DIM}),
-                    meta JSONB,
-                    caption_embedding VECTOR({VECTOR_DIM})
-                );
-            """)
+                try:
+                    await conn.execute(f"""
+                        CREATE TABLE IF NOT EXISTS vision_rag_image_segments (
+                            id BIGSERIAL PRIMARY KEY,
+                            image_id TEXT,
+                            bbox FLOAT8[],     -- [x1,y1,x2,y2]
+                            caption TEXT,
+                            embedding VECTOR({VECTOR_DIM}),
+                            meta JSONB,
+                            caption_embedding VECTOR({VECTOR_DIM})
+                        );
+                    """)
+                except Exception as e:
+                    print("Error creating vision_rag_image_segments table:", e)
+                    raise
 
-            # IVFFlat indexes (create after some rows exist for best clustering)
-            await conn.execute(f"""
-                CREATE INDEX IF NOT EXISTS vision_rag_text_chunks_ivf
-                ON vision_rag_text_chunks USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
-            """)
-            await conn.execute(f"""
-                CREATE INDEX IF NOT EXISTS vision_rag_images_ivf
-                ON vision_rag_images USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
-            """)
-            await conn.execute(f"""
-                CREATE INDEX IF NOT EXISTS vision_rag_segments_ivf
-                ON vision_rag_image_segments USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
-            """)
+                # IVFFlat indexes (create after some rows exist for best clustering)
+                try:
+                    await conn.execute(f"""
+                        CREATE INDEX IF NOT EXISTS vision_rag_text_chunks_ivf
+                        ON vision_rag_text_chunks USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
+                    """)
+                except Exception as e:
+                    print("Error creating vision_rag_text_chunks_ivf index:", e)
+                    raise
+                try:
+                    await conn.execute(f"""
+                        CREATE INDEX IF NOT EXISTS vision_rag_images_ivf
+                        ON vision_rag_images USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
+                    """)
+                except Exception as e:
+                    print("Error creating vision_rag_images_ivf index:", e)
+                    raise
+                try:
+                    await conn.execute(f"""
+                        CREATE INDEX IF NOT EXISTS vision_rag_segments_ivf
+                        ON vision_rag_image_segments USING ivfflat (embedding vector_l2_ops) WITH (lists = {IVF_LISTS});
+                    """)
+                except Exception as e:
+                    print("Error creating vision_rag_segments_ivf index:", e)
+                    raise
+    except Exception as e:
+        print("init_db failed:", e)
+        raise
 
 
 # ---- Helpers ----
@@ -159,7 +191,17 @@ async def insert_text_chunk(doc_id: str, text: str, embedding: List[float], meta
         )
 
 
+async def image_exists_by_uri(uri: str) -> bool:
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT 1 FROM vision_rag_images WHERE uri = $1 LIMIT 1", uri)
+        return row is not None
+
+
 async def insert_image(image_id: str, uri: str, embedding: List[float], meta: Optional[Dict[str, Any]] = None):
+    if await image_exists_by_uri(uri):
+        print(f"Image with uri '{uri}' already exists. Skipping insert.")
+        return
     caption_embedding = None
     if meta and "caption_embedding" in meta:
         caption_embedding = meta["caption_embedding"]

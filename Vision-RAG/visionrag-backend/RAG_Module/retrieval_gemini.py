@@ -1,4 +1,4 @@
-# rag_gemini_unified.py
+# rag_gemini.py
 import os
 import io
 import base64
@@ -8,15 +8,17 @@ import json
 import time
 import mimetypes
 
-import httpx  # CHANGED: USE HTTPX FOR CONSISTENT, FASTER HTTP CLIENT
+import httpx  
 
-from .db import query_knn  # your existing async kNN helper
+from .db import query_knn  
+from google import genai  
+from google.genai import types
 
 # ---------- CONFIG ----------
 # CHANGED: USE GEMINI_API_KEY (STANDARD NAME) AND VALIDATE EARLY
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-EMBED_MODEL    = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
-GEN_MODEL      = os.getenv("GEMINI_GEN_MODEL",   "gemini-1.5-flash")  # try "gemini-2.5-flash" if enabled
+EMBED_MODEL    = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")  # Correct model name
+GEN_MODEL      = os.getenv("GEMINI_VISION_MODEL",   "gemini-2.5-flash")  # use .env vision model for text generation
 
 TIMEOUT_S      = 30
 MAX_CTX_CHARS  = 2000           # CHANGED: CAP CONTEXT SIZE PER CHUNK
@@ -98,13 +100,31 @@ def _load_image_bytes(image: str) -> Tuple[Optional[bytes], Optional[str]]:
         return None, None
 
 # ---------- Gemini API wrappers ----------
-def gemini_embed_text(text: str) -> List[float]:
+def gemini_embed_text(text: str) -> list[float]:
+    """
+    Correct Gemini embedding call (v1beta) using :embedContent.
+    Returns a Python list[float] (length ~768 for gemini-embedding-001).
+    """
     if not GEMINI_API_KEY:
         raise RuntimeError("Missing GEMINI_API_KEY")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{EMBED_MODEL}:embedText?key={GEMINI_API_KEY}"
-    data = {"text": text}
-    j = _http_post_json(url, data)  # --- LLM CALL HERE ---
-    return j["embedding"]["values"]
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{EMBED_MODEL}:embedContent?key={GEMINI_API_KEY}"
+    payload = {
+        "model": f"models/{EMBED_MODEL}",
+        "content": {"parts": [{"text": text}]},
+        # query mode generally works better for user questions
+        "taskType": "RETRIEVAL_QUERY",
+    }
+    j = _http_post_json(url, payload)  # uses your existing helper
+    # response can be {"embedding":{"values":[...]}} or {"embedding":[...]} (older)
+    emb = (
+        j.get("embedding", {}).get("values")
+        or j.get("embedding", {}).get("value")
+        or j.get("embedding")
+    )
+    if not emb:
+        raise RuntimeError(f"Bad embed response: {j}")
+    return emb
 
 def gemini_caption_image_json(image_bytes: bytes, mime: str) -> dict:
     """

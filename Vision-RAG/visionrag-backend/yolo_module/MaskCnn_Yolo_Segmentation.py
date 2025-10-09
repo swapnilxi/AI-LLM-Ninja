@@ -19,7 +19,7 @@ import os
 from typing import List, Dict, Any, Optional
 
 # Import our Gemini Vision integration
-from gemini_vision_labeler import GeminiVisionLabeler, create_gemini_labeler
+from Utils.gemini_vision_labeler import GeminiVisionLabeler, create_gemini_labeler
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Device:", DEVICE)
