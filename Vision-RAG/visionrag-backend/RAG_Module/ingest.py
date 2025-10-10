@@ -12,6 +12,8 @@ import io
 import time
 import threading
 import functools
+import uuid
+from pathlib import Path
 from typing import List, Dict, Optional, Union, Tuple, Any, Callable, TypeVar
 
 # Add tenacity for retry and rate limiting
@@ -55,6 +57,10 @@ DATASET_PATH = os.getenv(
 # YOLO configuration
 YOLO_DEVICE = os.getenv("YOLO_DEVICE", "")  # Empty string means auto-select (cuda if available, else cpu)
 
+# Upload configuration
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+Path(UPLOAD_DIR).mkdir(exist_ok=True)  # Create uploads directory if it doesn't exist
+
 # SigLIP and gemini embeddings are provided by embed.embed_image(..., engine="siglip")
 
 
@@ -71,6 +77,31 @@ def _pct_to_px(bbox_pct: List[float], w: int, h: int) -> List[float]:
     if y2 < y1:
         y1, y2 = y2, y1
     return [float(x1), float(y1), float(x2), float(y2)]
+
+async def save_uploaded_image(image_bytes: bytes, filename: str) -> str:
+    """
+    Save uploaded image to disk and return the file path.
+    
+    Args:
+        image_bytes: Raw image data
+        filename: Original filename
+        
+    Returns:
+        str: Absolute path to saved image file
+    """
+    # Generate unique filename to avoid conflicts
+    file_ext = Path(filename).suffix.lower()
+    if not file_ext:
+        file_ext = '.jpg'  # Default extension
+    
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    file_path = Path(UPLOAD_DIR) / unique_filename
+    
+    # Save the image
+    with open(file_path, 'wb') as f:
+        f.write(image_bytes)
+    
+    return str(file_path.absolute())
 
 async def run_blocking(func: Callable[..., T], *args, **kwargs) -> T:
     """
@@ -423,8 +454,11 @@ async def ingest_image_api(
     """
     try:
         data = await file.read()
+        # Save uploaded image to disk
+        image_path = await save_uploaded_image(data, file.filename)
+        
         result = await ingest_image_bytes(
-            data, image_id=file.filename, uri=None, engine=engine, segment=segment, yolo=yolo
+            data, image_id=file.filename, uri=image_path, engine=engine, segment=segment, yolo=yolo
         )
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
@@ -453,10 +487,13 @@ async def ingest_image_yolo_api(
     """
     try:
         data = await file.read()
+        # Save uploaded image to disk
+        image_path = await save_uploaded_image(data, file.filename)
+        
         result = await ingest_yolo_segments(
             data, 
             image_id=file.filename, 
-            uri=None,
+            uri=image_path,
             conf_threshold=conf_threshold,
             max_regions=max_regions,
             embedding_engine=embedding_engine,
@@ -569,7 +606,10 @@ async def ingest_pdf_api(file: UploadFile = File(...)):
 async def ingest_image_gemini_api(file: UploadFile = File(...)):
     try:
         data = await file.read()
-        result = await ingest_image_bytes(data, image_id=file.filename, engine="gemini")
+        # Save uploaded image to disk
+        image_path = await save_uploaded_image(data, file.filename)
+        
+        result = await ingest_image_bytes(data, image_id=file.filename, uri=image_path, engine="gemini")
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
@@ -581,7 +621,10 @@ async def ingest_image_local_api(file: UploadFile = File(...)):
     """
     try:
         data = await file.read()
-        result = await ingest_image_bytes(data, image_id=file.filename, engine="siglip")
+        # Save uploaded image to disk
+        image_path = await save_uploaded_image(data, file.filename)
+        
+        result = await ingest_image_bytes(data, image_id=file.filename, uri=image_path, engine="siglip")
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
@@ -611,10 +654,13 @@ async def ingest_yolo_batch_api(
     for file in files:
         try:
             data = await file.read()
+            # Save uploaded image to disk
+            image_path = await save_uploaded_image(data, file.filename)
+            
             result = await ingest_yolo_segments(
                 data, 
                 image_id=file.filename, 
-                uri=None,
+                uri=image_path,
                 conf_threshold=conf_threshold,
                 max_regions=max_regions,
                 embedding_engine=embedding_engine,

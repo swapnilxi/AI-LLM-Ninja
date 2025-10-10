@@ -35,7 +35,9 @@ async def query_segments(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
             "bbox": [x1,y1,x2,y2],
             "cls": YOLO class label (if any),
             "conf": YOLO confidence score,
-            "crop_path": saved crop path (if any)
+            "crop_path": saved crop path (if any),
+            "image_id": parent image ID,
+            "image_uri": parent image URI from database
         }
     """
     await init_pool()
@@ -44,16 +46,39 @@ async def query_segments(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
     # Embed the query as a retrieval query vector
     q_vec = embed_text_one(question, task_type="RETRIEVAL_QUERY")
 
-    # Run k-NN search on the image segments table
+    # Run k-NN search on the image segments table, including image_id
     rows = await query_knn(
         table="vision_rag_image_segments",
         embedding=q_vec,
         k=top_k,
-        extra_cols=["bbox", "meta"]
+        extra_cols=["bbox", "meta", "image_id"]
     )
 
     hits: List[Dict[str, Any]] = []
     seen = set()
+    
+    # Fetch parent image URIs for all unique image_ids
+    from .db import get_pool
+    pool = get_pool()
+    image_uris = {}
+    
+    # Collect unique image_ids
+    image_ids = set()
+    for r in rows:
+        img_id = r.get("image_id")
+        if img_id:
+            image_ids.add(img_id)
+    
+    # Batch fetch URIs from vision_rag_images table
+    if image_ids:
+        async with pool.acquire() as conn:
+            uri_rows = await conn.fetch(
+                "SELECT image_id, uri FROM vision_rag_images WHERE image_id = ANY($1)",
+                list(image_ids)
+            )
+            for uri_row in uri_rows:
+                image_uris[uri_row["image_id"]] = uri_row["uri"]
+    
     for r in rows:
         meta = r.get("meta") or {}
         if isinstance(meta, str):
@@ -62,20 +87,25 @@ async def query_segments(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
             except Exception:
                 meta = {}
         crop_path = meta.get("crop_path")
-        cls = meta.get("cls")
-        # Use crop_path as unique key if present, else cls
-        key = crop_path if crop_path else cls
+        cls = meta.get("cls") or meta.get("obj_class")
+        img_id = r.get("image_id")
+        
+        # Use crop_path as unique key if present, else use segment id
+        key = crop_path if crop_path else r.get("id")
         if key in seen:
             continue
         seen.add(key)
+        
         hits.append({
             "id": r.get("id"),
             "caption": r.get("content"),
             "score": float(r.get("score", 0.0)),
             "bbox": r.get("bbox"),
             "cls": cls,
-            "conf": meta.get("conf"),
+            "conf": meta.get("conf") or meta.get("obj_conf"),
             "crop_path": crop_path,
+            "image_id": img_id,
+            "image_uri": image_uris.get(img_id),  # Database URI, not localhost
         })
 
     await close_pool()
