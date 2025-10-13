@@ -4,11 +4,11 @@ from fastapi.responses import JSONResponse, FileResponse
 import os
 import json
 import asyncio
-from typing import Optional, List, Dict
-from .retrieval_gemini import gemini_embed_text, _load_image_bytes, gemini_caption_image_json
+from typing import Optional, List, Dict, Union
+from .retrieval_gemini import gemini_embed_text, _load_image_bytes, gemini_caption_image_json, unified_query
 from .retrieval_yolo import query_segments, answer_from_segments
 from .embed import embed_image, embed_text_one_siglip
-from .db import query_knn
+from .db import query_knn, init_pool, init_db
 from yolo_module.yolo_infer import detect_with_crops
 from urllib.parse import quote
 
@@ -173,300 +173,269 @@ def _resolve_image_url(raw_uri: Optional[str], request: Request) -> Optional[str
     return f"{base}/image?path={quote(uri)}"
 
 
-@router.post("/query-image")
-async def query_image(
+
+
+
+
+
+# ========== NEW UNIFIED ENDPOINTS ==========
+
+@router.post("/query")
+async def unified_query_endpoint(
     request: Request,
     question: Optional[str] = Form(None),
-    image: Optional[str] = Form(None),
+    image: Optional[Union[UploadFile, str]] = Form(None),
+    image_url: Optional[str] = Form(None),
     k: int = Form(5),
-    engine: Optional[str] = Form(None),
-    yolo: Optional[bool] = Form(False),
+    include_segments: bool = Form(True),
+    include_text_chunks: bool = Form(True),
+    include_images: bool = Form(True),
 ):
     """
-    Unified endpoint: retrieve images by text or image (or both).
-    """
-    image_path = None
-    if image and image.strip():
-        image_path = image.strip()
-
-    result = await retrieve_images(query_text=question, image=image_path, k=k, engine=engine, yolo=bool(yolo))
-
-    # Post-process to ensure image URLs are resolvable from the browser
-    for item in result.get("results", []):
-        disp = item.get("display_info", {}) or {}
-        resolved = _resolve_image_url(disp.get("image_url") or item.get("uri") or item.get("content"), request)
-        if resolved:
-            disp["image_url"] = resolved
-        item["display_info"] = disp
-
-    return result
-
-
-@router.get("/image")
-async def serve_image(path: str):
-    """
-    Serve a local image file by absolute path. Minimal validation.
-    """
-    if not path or not os.path.exists(path) or not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(path)
-
-
-@router.post("/query-segments")
-async def query_segments_api(
-    request: Request,
-    question: str = Form(...),
-    top_k: int = Form(5),
-):
-    """
-    Query YOLO-detected image segments directly using text.
+    🎯 UNIFIED QUERY ENDPOINT - Your one-stop query interface!
     
-    This endpoint searches only the segments table (vision_rag_image_segments)
-    which contains YOLO-detected objects with their bounding boxes and embeddings.
+    This endpoint handles ALL query types and returns:
+    - A grounded text answer from the LLM
+    - Relevant images from the database
+    - Relevant image segments (YOLO detections)
+    - Text chunks for context
     
-    Example queries:
-    - "find all sofas"
-    - "is there a chair?"
-    - "show me all bottles"
+    Works with:
+    - Text-only queries: "What furniture is in the living room?"
+    - Image-only queries: Upload an image (will auto-generate question from image)
+    - Combined: Upload image + "Is there a sofa like this in our inventory?"
     
     Args:
-        question: Natural language query
-        top_k: Number of top segment matches to return (default: 5)
+        question: Natural language query (optional if image provided)
+        image: Optional uploaded image file or image string (base64 data URL, URL, etc.)
+        image_url: Optional image URL (if no file uploaded)
+        k: Number of results per category (default: 5)
+        include_segments: Search YOLO segments (default: True)
+        include_text_chunks: Search text chunks (default: True)
+        include_images: Search full images (default: True)
     
     Returns:
         {
             "question": str,
-            "results": List[Dict] with segment info (caption, bbox, score, confidence, image_uri, etc.)
+            "answer": str (grounded LLM answer),
+            "caption": dict (if image was analyzed),
+            "images": List[Dict] (relevant full images with URIs),
+            "segments": List[Dict] (relevant segments with bboxes, crops),
+            "text_chunks": List[Dict] (relevant text chunks),
+            "stats": dict (counts for each category)
         }
     """
     try:
-        hits = await query_segments(question, top_k=top_k)
+        # Initialize DB
+        await init_pool()
+        await init_db()
         
-        # Return database URIs directly, no localhost URL resolution
-        # Frontend can handle URL resolution if needed
-        
-        return {
-            "question": question,
-            "top_k": top_k,
-            "count": len(hits),
-            "results": hits  # Contains image_uri from database
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Segment query error: {str(e)}")
-
-
-@router.post("/query-answer")
-async def query_answer_api(
-    question: str = Form(...),
-    top_k: int = Form(5),
-):
-    """
-    Get a Gemini-generated grounded answer based on YOLO segment context.
-    
-    This endpoint:
-    1. Queries YOLO segments for relevant objects
-    2. Builds context from segment captions and metadata
-    3. Uses Gemini to generate a grounded answer
-    
-    Example queries:
-    - "is there a sofa in the room?"
-    - "what furniture is visible?"
-    - "describe the objects in the scene"
-    
-    Args:
-        question: Natural language query
-        top_k: Number of segments to use as context (default: 5)
-    
-    Returns:
-        {
-            "question": str,
-            "answer": str (Gemini-generated grounded answer),
-            "hits": List[Dict] (segment matches used for context),
-            "context_count": int (number of segments used)
-        }
-    """
-    try:
-        result = await answer_from_segments(question, top_k=top_k)
-        return {
-            "question": result["question"],
-            "answer": result["answer"],
-            "hits": result["hits"],
-            "context_count": len(result["hits"]),
-            "top_k": top_k
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Answer generation error: {str(e)}")
-
-
-@router.post("/query-unified")
-async def query_unified_api(
-    request: Request,
-    question: str = Form(...),
-    k: int = Form(5),
-    search_segments: bool = Form(True),
-    engine: Optional[str] = Form("gemini"),
-):
-    """
-    Unified text query that searches BOTH full images AND YOLO segments.
-    
-    This provides comprehensive results by:
-    1. Searching full image embeddings (vision_rag_images table)
-    2. Searching YOLO segment embeddings (vision_rag_image_segments table)
-    3. Merging and ranking results by similarity score
-    
-    Use this for queries that might match either:
-    - Overall scene descriptions (from Gemini captions)
-    - Specific objects (from YOLO detections)
-    
-    Example queries:
-    - "living room with furniture" (matches scene captions)
-    - "images with sofas" (matches YOLO segments)
-    - "modern office space" (matches both)
-    
-    Args:
-        question: Natural language query
-        k: Number of top results to return (default: 5)
-        search_segments: Whether to include segment search (default: True)
-        engine: Embedding engine to use - 'gemini' or 'siglip' (default: 'gemini')
-    
-    Returns:
-        {
-            "question": str,
-            "method": str (embedding engine used),
-            "results": List[Dict] (merged and ranked results),
-            "image_hits": int (number from full images),
-            "segment_hits": int (number from segments)
-        }
-    """
-    try:
-        eng = (engine or "gemini").lower()
-        
-        # Generate query embedding
-        if eng == "siglip":
-            try:
-                query_embedding = embed_text_one_siglip(question)
-                method = "text-siglip"
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"SigLIP embedding failed: {str(e)}")
-        else:
-            try:
-                query_embedding = gemini_embed_text(question)
-                method = "text-gemini"
-            except Exception as e:
-                # Fallback to SigLIP
-                try:
-                    query_embedding = embed_text_one_siglip(question)
-                    method = "text-siglip-fallback"
-                except Exception as e2:
-                    raise HTTPException(status_code=500, detail=f"Embedding generation failed: {str(e)}, {str(e2)}")
-        
-        # Search full images table
-        image_results = []
-        try:
-            image_results = await query_knn(
-                table="vision_rag_images",
-                embedding=query_embedding,
-                k=k,
-                extra_cols=["uri", "meta"]
+        # Validate: must provide either question or image
+        if not question and not image and not image_url:
+            raise HTTPException(
+                status_code=400, 
+                detail="Must provide either 'question' (text query) or 'image'/'image_url' (image query) or both"
             )
-        except Exception as e:
-            # Continue even if image search fails
-            pass
         
-        # Search segments table if requested
-        segment_results = []
-        if search_segments:
-            try:
-                segment_results = await query_knn(
-                    table="vision_rag_image_segments",
-                    embedding=query_embedding,
-                    k=k,
-                    extra_cols=["bbox", "meta", "image_id"]
-                )
-            except Exception as e:
-                # Continue even if segment search fails
-                pass
+        # Handle image input
+        image_input = None
+        if image:
+            if isinstance(image, UploadFile):
+                # Read uploaded file
+                contents = await image.read()
+                # Convert to base64 data URL
+                import base64
+                b64 = base64.b64encode(contents).decode('utf-8')
+                mime = image.content_type or "image/jpeg"
+                image_input = f"data:{mime};base64,{b64}"
+            else:
+                # image is a string (base64 data URL, URL, or other string)
+                image_input = image
+        elif image_url:
+            image_input = image_url
         
-        # Merge results by image_id and rank by score
-        merged = {}
+        # Generate a default question if only image is provided
+        query_question = question
+        if not query_question and image_input:
+            # Auto-generate question from image caption
+            query_question = "Describe what you see in this image and find similar content"
+        
+        # Call unified query function
+        result = await unified_query(
+            question=query_question,
+            image=image_input,
+            k=k,
+            include_segments=include_segments,
+            include_text_chunks=include_text_chunks,
+            include_images=include_images
+        )
+        
+        # Check for errors
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        # Post-process image URIs for frontend
+        def resolve_uri(uri: Optional[str]) -> Optional[str]:
+            if not uri:
+                return None
+            if uri.startswith("http://") or uri.startswith("https://") or uri.startswith("data:"):
+                return uri
+            # Convert local path to API endpoint
+            base = str(request.base_url).rstrip('/')
+            return f"{base}/image?path={quote(uri)}"
         
         # Process image results
-        for img in image_results:
-            img_id = img.get("id")
-            meta = img.get("meta")
+        images = []
+        for img_res in result.get("image_results", []):
+            meta = img_res.get("meta") or {}
             if isinstance(meta, str):
                 try:
                     meta = json.loads(meta)
                 except Exception:
                     meta = {}
             
-            merged[img_id] = {
-                "id": img_id,
-                "type": "full_image",
-                "score": float(img.get("score", 0.0)),
-                "uri": img.get("uri"),
-                "caption": meta.get("caption") if meta else None,
-                "meta": meta,
-                "content": img.get("content"),
-            }
+            images.append({
+                "id": img_res.get("id"),
+                "image_id": img_res.get("image_id"),
+                "uri": resolve_uri(img_res.get("uri")),
+                "score": float(img_res.get("score", 0)),
+                "caption": meta.get("caption"),
+                "source": meta.get("source"),
+                "meta": meta
+            })
         
         # Process segment results
-        for seg in segment_results:
-            seg_id = seg.get("id")
-            image_id = seg.get("image_id")
-            meta = seg.get("meta")
+        segments = []
+        for seg_res in result.get("segment_results", []):
+            meta = seg_res.get("meta") or {}
             if isinstance(meta, str):
                 try:
                     meta = json.loads(meta)
                 except Exception:
                     meta = {}
             
-            score = float(seg.get("score", 0.0))
+            segments.append({
+                "id": seg_res.get("id"),
+                "image_id": seg_res.get("image_id"),
+                "caption": seg_res.get("content"),
+                "score": float(seg_res.get("score", 0)),
+                "bbox": seg_res.get("bbox"),
+                "cls": meta.get("cls") or meta.get("obj_class"),
+                "conf": meta.get("conf") or meta.get("obj_conf"),
+                "crop_path": resolve_uri(meta.get("crop_path")),
+                "image_uri": resolve_uri(meta.get("image_uri")),
+                "meta": meta
+            })
+        
+        # Process text chunks
+        text_chunks = []
+        for txt_res in result.get("text_results", []):
+            meta = txt_res.get("meta") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
             
-            # If we already have this image from full search, keep the better score
-            if image_id in merged:
-                if score > merged[image_id]["score"]:
-                    merged[image_id]["score"] = score
-                    merged[image_id]["matched_segment"] = {
-                        "caption": seg.get("content"),
-                        "bbox": seg.get("bbox"),
-                        "obj_class": meta.get("obj_class") if meta else None,
-                        "confidence": meta.get("obj_conf") if meta else None,
-                    }
-            else:
-                # New image from segment search
-                merged[image_id] = {
-                    "id": image_id,
-                    "type": "segment_match",
-                    "score": score,
-                    "image_id": image_id,
-                    "segment_caption": seg.get("content"),
-                    "bbox": seg.get("bbox"),
-                    "meta": meta,
-                }
-        
-        # Sort by score and take top k
-        ranked_results = sorted(merged.values(), key=lambda x: -x["score"])[:k]
-        
-        # Post-process URLs
-        for result in ranked_results:
-            if result.get("uri"):
-                resolved = _resolve_image_url(result["uri"], request)
-                if resolved:
-                    result["image_url"] = resolved
+            text_chunks.append({
+                "id": txt_res.get("id"),
+                "doc_id": txt_res.get("doc_id"),
+                "text": txt_res.get("content"),
+                "score": float(txt_res.get("score", 0)),
+                "source": meta.get("source"),
+                "meta": meta
+            })
         
         return {
-            "question": question,
-            "method": method,
-            "k": k,
-            "search_segments": search_segments,
-            "image_hits": len(image_results),
-            "segment_hits": len(segment_results),
-            "total_results": len(ranked_results),
-            "results": ranked_results
+            "question": query_question,  # Return the actual question used (may be auto-generated)
+            "original_question": question,  # Return original question (may be None)
+            "answer": result.get("answer"),
+            "method": result.get("method"),
+            "caption": result.get("caption"),
+            "caption_used": result.get("caption_used", False),
+            "images": images,
+            "segments": segments,
+            "text_chunks": text_chunks,
+            "stats": result.get("stats", {}),
+            "all_contexts": result.get("all_contexts", [])  # For debugging
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unified query error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unified query failed: {str(e)}")
+
+
+@router.post("/query-segments-with-answer")
+async def query_segments_with_answer_endpoint(
+    request: Request,
+    question: str = Form(...),
+    top_k: int = Form(5),
+):
+    """
+    🔍 SEGMENT-FOCUSED QUERY WITH GROUNDED ANSWER
+    
+    This endpoint:
+    1. Searches ONLY image segments (YOLO detections)
+    2. Generates a grounded answer using segment context
+    3. Returns both the answer AND the segments with images
+    
+    Best for object-specific queries like:
+    - "Is there a sofa?"
+    - "Find all chairs"
+    - "Show me bottles"
+    
+    Args:
+        question: Natural language query
+        top_k: Number of segments to retrieve (default: 5)
+    
+    Returns:
+        {
+            "question": str,
+            "answer": str (grounded LLM answer),
+            "segments": List[Dict] (matched segments with images, bboxes, scores)
+        }
+    """
+    try:
+        # Initialize DB
+        await init_pool()
+        await init_db()
+        
+        # Get answer + segments
+        result = await answer_from_segments(question, top_k=top_k)
+        
+        # Resolve URIs
+        def resolve_uri(uri: Optional[str]) -> Optional[str]:
+            if not uri:
+                return None
+            if uri.startswith("http://") or uri.startswith("https://") or uri.startswith("data:"):
+                return uri
+            base = str(request.base_url).rstrip('/')
+            return f"{base}/image?path={quote(uri)}"
+        
+        # Format segments for frontend
+        segments = []
+        for hit in result.get("hits", []):
+            segments.append({
+                "id": hit.get("id"),
+                "image_id": hit.get("image_id"),
+                "caption": hit.get("caption"),
+                "score": hit.get("score"),
+                "bbox": hit.get("bbox"),
+                "cls": hit.get("cls"),
+                "conf": hit.get("conf"),
+                "crop_path": resolve_uri(hit.get("crop_path")),
+                "image_uri": resolve_uri(hit.get("image_uri")),
+            })
+        
+        return {
+            "question": result["question"],
+            "answer": result["answer"],
+            "segments": segments,
+            "count": len(segments),
+            "top_k": top_k
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Segment query failed: {str(e)}")
+

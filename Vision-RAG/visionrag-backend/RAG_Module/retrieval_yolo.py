@@ -106,9 +106,9 @@ async def query_segments(question: str, top_k: int = 5) -> List[Dict[str, Any]]:
             "crop_path": crop_path,
             "image_id": img_id,
             "image_uri": image_uris.get(img_id),  # Database URI, not localhost
+            "meta": meta  # Include full meta for additional info
         })
 
-    await close_pool()
     return hits
 
 

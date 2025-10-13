@@ -11,6 +11,7 @@ import mimetypes
 import httpx  
 
 from .db import query_knn  
+from .embed import align_vector
 from google import genai  
 from google.genai import types
 
@@ -124,7 +125,7 @@ def gemini_embed_text(text: str) -> list[float]:
     )
     if not emb:
         raise RuntimeError(f"Bad embed response: {j}")
-    return emb
+    return align_vector(emb)
 
 def gemini_caption_image_json(image_bytes: bytes, mime: str) -> dict:
     """
@@ -236,6 +237,171 @@ def _run_async(coro):
         return asyncio.run(coro)
 
 # ---------- Unified RAG entrypoint ----------
+async def unified_query(
+    question: str,
+    image: Optional[str] = None,
+    k: int = 5,
+    include_segments: bool = True,
+    include_text_chunks: bool = True,
+    include_images: bool = True,
+    enrich_with_caption: bool = True
+) -> Dict:
+    """
+    UNIFIED query endpoint that retrieves from multiple sources and generates a grounded answer.
+    
+    This function:
+    1. Processes text/image queries
+    2. Retrieves from text_chunks, images, and image_segments tables
+    3. Generates a grounded answer with the LLM
+    4. Returns both the answer AND all relevant images/segments
+    
+    Args:
+        question: Natural language query
+        image: Optional image (path, URL, or base64 data URL)
+        k: Number of results per table
+        include_segments: Search YOLO image segments
+        include_text_chunks: Search text chunks
+        include_images: Search full images
+        enrich_with_caption: Use vision model to enhance image queries
+    
+    Returns:
+        {
+            "question": str,
+            "answer": str (grounded LLM response),
+            "method": str,
+            "caption": dict (if image was captioned),
+            "text_results": List[Dict] (from text_chunks),
+            "image_results": List[Dict] (from vision_rag_images),
+            "segment_results": List[Dict] (from vision_rag_image_segments),
+            "all_contexts": List[Dict] (used for answer generation)
+        }
+    """
+    if not GEMINI_API_KEY:
+        return {"error": "Missing GEMINI_API_KEY"}
+
+    # (1) Process input image if provided
+    img_bytes, img_mime = (None, None)
+    query_text = question
+    caption_data = None
+
+    if image:
+        img_bytes, img_mime = _load_image_bytes(image)
+        if img_bytes and img_mime and enrich_with_caption:
+            caption_data = gemini_caption_image_json(img_bytes, img_mime)
+            query_text = _build_query_from_detection(caption_data, question)
+
+    # (2) Generate query embedding
+    try:
+        qvec = gemini_embed_text(query_text)
+    except Exception as e:
+        return {"error": f"Gemini embedding failed: {e}"}
+
+    # (3) Retrieve from multiple sources
+    text_results = []
+    image_results = []
+    segment_results = []
+
+    try:
+        if include_text_chunks:
+            text_results = await query_knn("vision_rag_text_chunks", qvec, k=k, extra_cols=["doc_id", "meta"])
+        
+        if include_images:
+            image_results = await query_knn("vision_rag_images", qvec, k=k, extra_cols=["image_id", "uri", "meta"])
+        
+        if include_segments:
+            segment_results = await query_knn("vision_rag_image_segments", qvec, k=k, extra_cols=["image_id", "bbox", "meta"])
+            
+    except Exception as e:
+        return {"error": f"Database retrieval failed: {e}"}
+
+    # (4) Build unified context for LLM
+    all_contexts = []
+    
+    # Add text chunks to context
+    for r in text_results:
+        all_contexts.append({
+            "id": f"text_{r.get('id')}",
+            "text": (r.get("content") or "")[:MAX_CTX_CHARS],
+            "source": f"text_chunk_{r.get('doc_id') or r.get('id')}",
+            "type": "text_chunk",
+            "score": float(r.get("score", 0))
+        })
+    
+    # Add image captions to context
+    for r in image_results:
+        meta = r.get("meta") or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        
+        caption = meta.get("caption", "")
+        if caption:
+            all_contexts.append({
+                "id": f"image_{r.get('id')}",
+                "text": caption[:MAX_CTX_CHARS],
+                "source": r.get("uri") or f"image_{r.get('image_id')}",
+                "type": "image",
+                "score": float(r.get("score", 0)),
+                "image_id": r.get("image_id"),
+                "uri": r.get("uri")
+            })
+    
+    # Add segment captions to context
+    for r in segment_results:
+        caption = r.get("content") or ""
+        meta = r.get("meta") or {}
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        
+        if caption:
+            all_contexts.append({
+                "id": f"segment_{r.get('id')}",
+                "text": caption[:MAX_CTX_CHARS],
+                "source": meta.get("crop_path") or f"segment_{r.get('id')}",
+                "type": "segment",
+                "score": float(r.get("score", 0)),
+                "image_id": r.get("image_id"),
+                "bbox": r.get("bbox"),
+                "cls": meta.get("cls") or meta.get("obj_class"),
+                "conf": meta.get("conf") or meta.get("obj_conf")
+            })
+
+    # Sort contexts by score (highest first)
+    all_contexts.sort(key=lambda x: -x["score"])
+    
+    # (5) Generate grounded answer
+    if not all_contexts:
+        answer = "I don't know - no relevant information found in the database."
+    else:
+        try:
+            answer = gemini_generate_grounded(question, all_contexts, image_bytes=img_bytes, mime=img_mime)
+        except Exception as e:
+            return {"error": f"Gemini generation failed: {e}"}
+
+    return {
+        "method": "unified_gemini_rag",
+        "question": question,
+        "answer": answer,
+        "caption": caption_data,
+        "caption_used": bool(image and enrich_with_caption and caption_data),
+        "text_results": text_results,
+        "image_results": image_results,
+        "segment_results": segment_results,
+        "all_contexts": all_contexts,
+        "stats": {
+            "text_count": len(text_results),
+            "image_count": len(image_results),
+            "segment_count": len(segment_results),
+            "context_count": len(all_contexts)
+        }
+    }
+
+
 def rag_answer(
     question: str,
     image: Optional[str] = None,
@@ -243,13 +409,10 @@ def rag_answer(
     enrich_with_caption: bool = True
 ) -> Dict:
     """
-    One-call RAG that works for text-only (image=None) or image+text.
-
-    Steps:
-      (a) Optional: caption image -> enrich query text
-      (b) Embed (question [+ caption]) with Gemini Embedding
-      (c) k-NN retrieve top-k from your `text_chunks`
-      (d) Generate grounded answer with Gemini (optionally vision-aware)
+    LEGACY: One-call RAG that works for text-only (image=None) or image+text.
+    
+    Use unified_query() instead for full multi-source retrieval.
+    This function is kept for backward compatibility.
     """
     if not GEMINI_API_KEY:
         return {"error": "Missing GEMINI_API_KEY"}
@@ -257,12 +420,12 @@ def rag_answer(
     # (a) optional image caption (structured)
     img_bytes, img_mime = (None, None)
     query_text = question
+    det = None
 
     if image:
         img_bytes, img_mime = _load_image_bytes(image)
         if img_bytes and img_mime and enrich_with_caption:
             det = gemini_caption_image_json(img_bytes, img_mime)
-            # CHANGED: USE STRUCTURED CUES FOR BETTER RETRIEVAL
             query_text = _build_query_from_detection(det, question)
 
     # (b) embed query
@@ -273,11 +436,10 @@ def rag_answer(
 
     # (c) retrieve
     try:
-        results = _run_async(query_knn("text_chunks", qvec, k=k))  # CHANGED: SAFE ASYNC BRIDGE
+        results = _run_async(query_knn("vision_rag_text_chunks", qvec, k=k))
     except Exception as e:
         return {"error": f"k-NN retrieval failed: {e}"}
 
-    # CHANGED: NO-CONTEXT GUARD
     if not results:
         return {
             "method": "gemini_rag_unified",
