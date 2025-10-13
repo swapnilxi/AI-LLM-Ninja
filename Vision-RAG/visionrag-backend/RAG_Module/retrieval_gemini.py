@@ -116,15 +116,15 @@ def gemini_embed_text(text: str) -> list[float]:
         # query mode generally works better for user questions
         "taskType": "RETRIEVAL_QUERY",
     }
-    j = _http_post_json(url, payload)  # uses your existing helper
+    response = _http_post_json(url, payload)  # uses your existing helper
     # response can be {"embedding":{"values":[...]}} or {"embedding":[...]} (older)
     emb = (
-        j.get("embedding", {}).get("values")
-        or j.get("embedding", {}).get("value")
-        or j.get("embedding")
+        response.get("embedding", {}).get("values")
+        or response.get("embedding", {}).get("value")
+        or response.get("embedding")
     )
     if not emb:
-        raise RuntimeError(f"Bad embed response: {j}")
+        raise RuntimeError(f"Bad embed response: {response}")
     return align_vector(emb)
 
 def gemini_caption_image_json(image_bytes: bytes, mime: str) -> dict:
@@ -154,10 +154,10 @@ def gemini_caption_image_json(image_bytes: bytes, mime: str) -> dict:
             "responseMimeType": "application/json"  # CHANGED: REQUEST JSON DIRECTLY
         }
     }
-    j = _http_post_json(url, payload)  # --- LLM CALL HERE ---
+    response = _http_post_json(url, payload)  # --- LLM CALL HERE ---
     # CHANGED: ROBUST JSON PARSE
     try:
-        text = j["candidates"][0]["content"]["parts"][0]["text"]
+        text = response["candidates"][0]["content"]["parts"][0]["text"]
         data = json.loads(text)
         if not isinstance(data, dict):
             raise ValueError("Non-dict JSON")
@@ -217,9 +217,9 @@ def gemini_generate_grounded(question: str, contexts: List[Dict], image_bytes: O
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEN_MODEL}:generateContent?key={GEMINI_API_KEY}"
     payload = {"contents": contents, "generationConfig": {"temperature": 0.2}}
-    j = _http_post_json(url, payload)  # --- LLM CALL HERE ---
+    response = _http_post_json(url, payload)  # --- LLM CALL HERE ---
     try:
-        return j["candidates"][0]["content"]["parts"][0]["text"]
+        return response["candidates"][0]["content"]["parts"][0]["text"]
     except Exception:
         return "I don't know"
 
