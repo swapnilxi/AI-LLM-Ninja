@@ -3,7 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { VisionRAGResult } from "@/types/api";
-import { Eye, FileText, Image as ImageIcon, Zap } from "lucide-react";
+import { Eye, FileText, Image as ImageIcon, Target, Zap } from "lucide-react";
+import { YoloBoundingBox } from "./yolo-bounding-box";
 
 interface ResultsDisplayProps {
   results: VisionRAGResult[];
@@ -37,6 +38,8 @@ export function ResultsDisplay({ results, query, method }: ResultsDisplayProps) 
         return <Zap className="h-3 w-3" />;
       case 'siglip':
         return <ImageIcon className="h-3 w-3" />;
+      case 'yolo':
+        return <Eye className="h-3 w-3" />;
       default:
         return <FileText className="h-3 w-3" />;
     }
@@ -103,17 +106,31 @@ export function ResultsDisplay({ results, query, method }: ResultsDisplayProps) 
             <CardContent className="p-4 pt-0 space-y-3">
               {/* Image */}
               {result.display_info?.image_url && (
-                <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                  <img
-                    src={result.display_info.image_url}
-                    alt={result.display_info?.caption || "Result image"}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                    }}
-                  />
-                </div>
+                <>
+                  {/* YOLO results with bounding box */}
+                  {result.display_info?.engine === 'yolo' && result.display_info?.bbox ? (
+                    <YoloBoundingBox 
+                      image_url={result.display_info.image_url}
+                      bbox={result.display_info.bbox}
+                      cls={result.display_info.cls}
+                      conf={result.display_info.conf}
+                      caption={result.display_info.caption}
+                    />
+                  ) : (
+                    /* Regular image display for non-YOLO results */
+                    <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+                      <img
+                        src={result.display_info.image_url}
+                        alt={result.display_info?.caption || "Result image"}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               {/* Caption/Content */}
@@ -121,6 +138,27 @@ export function ResultsDisplay({ results, query, method }: ResultsDisplayProps) 
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">Caption:</p>
                   <p className="text-sm">{result.display_info.caption}</p>
+                </div>
+              )}
+              
+              {/* YOLO-specific class and confidence display */}
+              {result.display_info?.engine === 'yolo' && (
+                <div className="flex flex-wrap gap-3 mt-2">
+                  {result.display_info?.cls && (
+                    <Badge variant="outline" className="flex items-center gap-1 px-2 py-1">
+                      <Target className="h-3 w-3" />
+                      Class: {result.display_info.cls}
+                    </Badge>
+                  )}
+                  {result.display_info?.conf !== undefined && (
+                    <Badge variant="outline" className="flex items-center gap-1 px-2 py-1">
+                      <div className={`w-2 h-2 rounded-full ${
+                        result.display_info.conf >= 0.7 ? 'bg-green-500' : 
+                        result.display_info.conf >= 0.5 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`} />
+                      Confidence: {(result.display_info.conf * 100).toFixed(1)}%
+                    </Badge>
+                  )}
                 </div>
               )}
 

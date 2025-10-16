@@ -10,7 +10,7 @@ import { useState } from "react";
 import { ImageUpload } from "./image-upload";
 
 interface QueryFormProps {
-  onSubmit: (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip') => void;
+  onSubmit: (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip' | 'yolo') => void;
   isLoading: boolean;
 }
 
@@ -18,10 +18,11 @@ export function QueryForm({ onSubmit, isLoading }: QueryFormProps) {
   const [query, setQuery] = useState("");
   const [image, setImage] = useState<string | undefined>();
   const [k, setK] = useState(5);
-  const [engine, setEngine] = useState<'gemini' | 'siglip'>("gemini");
+  const [engine, setEngine] = useState<'gemini' | 'siglip' | 'yolo'>("gemini");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[VisionRAG] QueryForm submit:', { query, image, k, engine });
     if (query.trim() || image) {
       onSubmit(query.trim(), image, k, engine);
     }
@@ -129,11 +130,12 @@ export function QueryForm({ onSubmit, isLoading }: QueryFormProps) {
               <select
                 id="engine"
                 value={engine}
-                onChange={(e) => setEngine(e.target.value as 'gemini' | 'siglip')}
+                onChange={(e) => setEngine(e.target.value as 'gemini' | 'siglip' | 'yolo')}
                 className="w-full appearance-none rounded-md border-2 border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-slate-800/80 py-2 px-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="gemini">Gemini (Vision + Embeddings)</option>
                 <option value="siglip">SigLIP (Local embeddings)</option>
+                <option value="yolo">YOLO (Object Detection)</option>
               </select>
             </div>
           </div>
