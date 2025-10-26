@@ -13,6 +13,9 @@ export interface VisionRAGResult {
     conf?: number;          // YOLO confidence score
     crop_path?: string;     // Path to cropped segment image
     image_id?: number;      // Parent image ID
+    // Optional base64 image payload (when backend returns image bytes inline)
+    image_base64?: string;
+    mime_type?: string;
     [key: string]: any;
   };
   display_info?: {
@@ -25,6 +28,9 @@ export interface VisionRAGResult {
     bbox?: [number, number, number, number]; // YOLO bounding box [x1, y1, x2, y2]
     cls?: string;           // YOLO class label
     conf?: number;          // YOLO confidence score
+    // Inline base64 + mime when provided by backend
+    image_base64?: string;
+    mime_type?: string;
   };
 }
 

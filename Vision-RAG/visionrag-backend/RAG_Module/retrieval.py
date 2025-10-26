@@ -1,11 +1,12 @@
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 import os
 import json
 import asyncio
 from typing import Optional, List, Dict, Union
 from .retrieval_gemini import gemini_embed_text, _load_image_bytes, gemini_caption_image_json, unified_query
+import base64
 from .retrieval_yolo import query_segments, answer_from_segments
 from .embed import embed_image, embed_text_one_siglip
 from .db import query_knn, init_pool, init_db
@@ -284,6 +285,22 @@ async def unified_query_endpoint(
             base = str(request.base_url).rstrip('/')
             return f"{base}/image?path={quote(uri)}"
         
+        # Helper: sanitize meta by removing large embedding vectors or fields
+        def _sanitize_meta(meta_in: dict) -> dict:
+            if not isinstance(meta_in, dict):
+                return {}
+            meta_out = {}
+            for k, v in meta_in.items():
+                kl = str(k).lower()
+                # drop anything that looks like an embedding/vector
+                if 'embed' in kl or 'embedding' in kl or 'vector' in kl:
+                    continue
+                # drop very large lists (likely numeric vectors)
+                if isinstance(v, (list, tuple)) and len(v) > 128:
+                    continue
+                meta_out[k] = v
+            return meta_out
+
         # Process image results
         images = []
         for img_res in result.get("image_results", []):
@@ -293,15 +310,42 @@ async def unified_query_endpoint(
                     meta = json.loads(meta)
                 except Exception:
                     meta = {}
-            
+            # keep caption but remove large embeddings
+            safe_meta = _sanitize_meta(meta)
+
+            # Attempt to inline image bytes as base64 when possible (small local files or data URLs)
+            raw_uri = img_res.get("uri")
+            inline_b64 = None
+            inline_mime = None
+            try:
+                if raw_uri:
+                    # First try raw DB uri (may be a local path or data: URL)
+                    bts, mime = _load_image_bytes(raw_uri)
+                    # If that fails or returns nothing, try the resolved absolute URL (served by /image)
+                    if not bts:
+                        resolved = resolve_uri(raw_uri)
+                        if resolved and resolved != raw_uri:
+                            bts, mime = _load_image_bytes(resolved)
+
+                    # Only inline reasonably-sized images to avoid huge payloads
+                    if bts and mime and len(bts) <= 1_500_000:  # ~1.5 MB
+                        inline_b64 = base64.b64encode(bts).decode("utf-8")
+                        inline_mime = mime
+            except Exception:
+                inline_b64 = None
+                inline_mime = None
+
             images.append({
                 "id": img_res.get("id"),
                 "image_id": img_res.get("image_id"),
-                "uri": resolve_uri(img_res.get("uri")),
+                "uri": resolve_uri(raw_uri),
                 "score": float(img_res.get("score", 0)),
                 "caption": meta.get("caption"),
                 "source": meta.get("source"),
-                "meta": meta
+                "meta": safe_meta,
+                # Inline base64 (string without data: prefix) and mime type when available
+                "image_base64": inline_b64,
+                "mime_type": inline_mime,
             })
         
         # Process segment results
@@ -313,7 +357,27 @@ async def unified_query_endpoint(
                     meta = json.loads(meta)
                 except Exception:
                     meta = {}
-            
+            safe_meta = _sanitize_meta(meta)
+
+            # Try to inline crop bytes for segments (if crop_path is local or a data URL)
+            crop_raw = meta.get("crop_path")
+            crop_b64 = None
+            crop_mime = None
+            try:
+                if crop_raw:
+                    # try raw path first
+                    bts, mime = _load_image_bytes(crop_raw)
+                    if not bts:
+                        resolved_crop = resolve_uri(crop_raw)
+                        if resolved_crop and resolved_crop != crop_raw:
+                            bts, mime = _load_image_bytes(resolved_crop)
+                    if bts and mime and len(bts) <= 1_500_000:
+                        crop_b64 = base64.b64encode(bts).decode("utf-8")
+                        crop_mime = mime
+            except Exception:
+                crop_b64 = None
+                crop_mime = None
+
             segments.append({
                 "id": seg_res.get("id"),
                 "image_id": seg_res.get("image_id"),
@@ -324,7 +388,10 @@ async def unified_query_endpoint(
                 "conf": meta.get("conf") or meta.get("obj_conf"),
                 "crop_path": resolve_uri(meta.get("crop_path")),
                 "image_uri": resolve_uri(meta.get("image_uri")),
-                "meta": meta
+                "meta": safe_meta,
+                # Inline crop base64 (no data: prefix) and mime type when available
+                "image_base64": crop_b64,
+                "mime_type": crop_mime,
             })
         
         # Process text chunks
@@ -439,3 +506,77 @@ async def query_segments_with_answer_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Segment query failed: {str(e)}")
 
+
+# ========== IMAGE SERVING ENDPOINT ==========
+
+@router.get("/image")
+async def serve_image(path: str):
+    """
+    Serve image files from local filesystem or database.
+    
+    Args:
+        path: Relative/absolute path to the image file, or image_id to query from DB
+    
+    Returns:
+        FileResponse with the image or Response with image bytes from DB
+    """
+    try:
+        # Handle both relative and absolute paths
+        if not os.path.isabs(path):
+            # Try multiple base directories
+            base_dirs = [
+                os.getcwd(),  # Current working directory
+                os.path.dirname(os.path.dirname(__file__)),  # Project root
+                "/",  # Absolute root
+            ]
+            
+            for base_dir in base_dirs:
+                full_path = os.path.join(base_dir, path)
+                if os.path.exists(full_path) and os.path.isfile(full_path):
+                    path = full_path
+                    break
+        
+        # If file exists on filesystem, serve it
+        if os.path.exists(path) and os.path.isfile(path):
+            # Determine media type from extension
+            ext = os.path.splitext(path)[1].lower()
+            media_types = {
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.png': 'image/png',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.bmp': 'image/bmp',
+                '.svg': 'image/svg+xml',
+            }
+            media_type = media_types.get(ext, 'application/octet-stream')
+            return FileResponse(path, media_type=media_type)
+        
+        # If not found on filesystem, try to fetch from database by image_id
+        from .db import get_pool
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            # Try exact match on image_id
+            row = await conn.fetchrow(
+                "SELECT image_data, mime_type FROM vision_rag_images WHERE image_id = $1 AND image_data IS NOT NULL LIMIT 1",
+                path
+            )
+            
+            # If not found by image_id, try uri column (might be basename match)
+            if not row:
+                row = await conn.fetchrow(
+                    "SELECT image_data, mime_type FROM vision_rag_images WHERE uri LIKE $1 AND image_data IS NOT NULL LIMIT 1",
+                    f"%{path}"
+                )
+            
+            if row and row['image_data']:
+                mime_type = row['mime_type'] or 'image/jpeg'
+                return Response(content=bytes(row['image_data']), media_type=mime_type)
+        
+        # Not found anywhere
+        raise HTTPException(status_code=404, detail=f"Image not found on filesystem or database: {path}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error serving image: {str(e)}")

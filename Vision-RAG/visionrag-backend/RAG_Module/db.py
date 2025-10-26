@@ -117,6 +117,21 @@ async def init_db():
                             caption_embedding VECTOR({VECTOR_DIM})
                         );
                     """)
+                    
+                    # Add image_data and mime_type columns if they don't exist (migration)
+                    try:
+                        await conn.execute("""
+                            ALTER TABLE vision_rag_images 
+                            ADD COLUMN IF NOT EXISTS image_data BYTEA;
+                        """)
+                        await conn.execute("""
+                            ALTER TABLE vision_rag_images 
+                            ADD COLUMN IF NOT EXISTS mime_type TEXT;
+                        """)
+                        print("Successfully added/verified image_data and mime_type columns")
+                    except Exception as col_err:
+                        print(f"Warning adding columns (may already exist): {col_err}")
+                        
                 except Exception as e:
                     print("Error creating vision_rag_images table:", e)
                     raise
@@ -198,7 +213,7 @@ async def image_exists_by_uri(uri: str) -> bool:
         return row is not None
 
 
-async def insert_image(image_id: str, uri: str, embedding: List[float], meta: Optional[Dict[str, Any]] = None):
+async def insert_image(image_id: str, uri: str, embedding: List[float], meta: Optional[Dict[str, Any]] = None, image_data: Optional[bytes] = None, mime_type: Optional[str] = None):
     if await image_exists_by_uri(uri):
         print(f"Image with uri '{uri}' already exists. Skipping insert.")
         return
@@ -209,10 +224,10 @@ async def insert_image(image_id: str, uri: str, embedding: List[float], meta: Op
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO vision_rag_images (image_id, uri, embedding, meta, caption_embedding)
-            VALUES ($1, $2, $3::vector, $4::jsonb, $5::vector)
+            INSERT INTO vision_rag_images (image_id, uri, embedding, meta, caption_embedding, image_data, mime_type)
+            VALUES ($1, $2, $3::vector, $4::jsonb, $5::vector, $6, $7)
             """,
-            image_id, uri, _format_vector(embedding), _as_json(meta), _format_vector(caption_embedding) if caption_embedding else None
+            image_id, uri, _format_vector(embedding), _as_json(meta), _format_vector(caption_embedding) if caption_embedding else None, image_data, mime_type
         )
 
 

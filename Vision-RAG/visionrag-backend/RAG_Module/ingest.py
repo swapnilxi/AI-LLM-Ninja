@@ -223,6 +223,17 @@ async def ingest_yolo_segments(
     engine_lc = embedding_engine.lower()
     segments_count = 0
     
+    # Detect MIME type from bytes
+    mime_type = "image/jpeg"  # default
+    if image_bytes[:8].startswith(b"\x89PNG"):
+        mime_type = "image/png"
+    elif image_bytes[:3] == b"\xff\xd8\xff":
+        mime_type = "image/jpeg"
+    elif image_bytes[:4] == b"GIF8":
+        mime_type = "image/gif"
+    elif image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        mime_type = "image/webp"
+    
     # Store full image if requested
     if store_full_image:
         # Run all embedding operations with retry logic
@@ -241,6 +252,8 @@ async def ingest_yolo_segments(
                 "processing": "yolo_pipeline",
                 "caption_embedding": caption_embedding,  # Store in meta for db.insert_image to extract
             },
+            image_data=image_bytes,  # Store bytes in DB
+            mime_type=mime_type,  # Store MIME type
         )
     
     # Process YOLO segments
@@ -279,12 +292,26 @@ async def ingest_image_bytes(
     engine: str = "gemini",
     segment: bool = True,
     yolo: bool = True,
+    store_bytes_in_db: bool = True,  # NEW: option to store raw bytes in DB
 ) -> Dict:
     """
     Ingest a single image (bytes) with chosen embedding engine and optional segmentation.
     engine: 'gemini' or 'siglip'
+    store_bytes_in_db: if True, store raw image bytes in the database for serving
     """
     engine_lc = (engine or "gemini").lower()
+    
+    # Detect MIME type from bytes
+    import mimetypes
+    mime_type = "image/jpeg"  # default
+    if image_bytes[:8].startswith(b"\x89PNG"):
+        mime_type = "image/png"
+    elif image_bytes[:3] == b"\xff\xd8\xff":
+        mime_type = "image/jpeg"
+    elif image_bytes[:4] == b"GIF8":
+        mime_type = "image/gif"
+    elif image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        mime_type = "image/webp"
     
     # Run all embedding operations in threads with retry logic
     img_vec = await run_gemini_with_retry(embed.embed_image, image_bytes, engine=engine_lc)
@@ -301,6 +328,8 @@ async def ingest_image_bytes(
             "caption": caption,
             "caption_embedding": caption_embedding,  # Store in meta for db.insert_image to extract
         },
+        image_data=image_bytes if store_bytes_in_db else None,  # NEW: store bytes
+        mime_type=mime_type if store_bytes_in_db else None,  # NEW: store MIME type
     )
 
     seg_count = 0
@@ -458,7 +487,7 @@ async def ingest_image_api(
         image_path = await save_uploaded_image(data, file.filename)
         
         result = await ingest_image_bytes(
-            data, image_id=file.filename, uri=image_path, engine=engine, segment=segment, yolo=yolo
+            data, image_id=file.filename, uri=image_path, engine=engine, segment=segment, yolo=yolo, store_bytes_in_db=True
         )
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
@@ -609,7 +638,7 @@ async def ingest_image_gemini_api(file: UploadFile = File(...)):
         # Save uploaded image to disk
         image_path = await save_uploaded_image(data, file.filename)
         
-        result = await ingest_image_bytes(data, image_id=file.filename, uri=image_path, engine="gemini")
+        result = await ingest_image_bytes(data, image_id=file.filename, uri=image_path, engine="gemini", store_bytes_in_db=True)
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")
@@ -624,7 +653,7 @@ async def ingest_image_local_api(file: UploadFile = File(...)):
         # Save uploaded image to disk
         image_path = await save_uploaded_image(data, file.filename)
         
-        result = await ingest_image_bytes(data, image_id=file.filename, uri=image_path, engine="siglip")
+        result = await ingest_image_bytes(data, image_id=file.filename, uri=image_path, engine="siglip", store_bytes_in_db=True)
         return {"status": "ingested", "caption": result.get("caption"), **result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion error: {str(e)}")

@@ -3,6 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IngestForm } from "@/components/vision-rag/ingest-form";
 import { QueryForm } from "@/components/vision-rag/query-form";
 import { ResultsDisplay } from "@/components/vision-rag/results-display";
 import { StatusIndicator } from "@/components/vision-rag/status-indicator";
@@ -85,9 +87,26 @@ export default function Home() {
 
           {/* Main Content */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Query Form */}
+            {/* Left Sidebar - Query/Ingest Forms */}
             <div className="lg:col-span-1">
-              <QueryForm onSubmit={handleQuery} isLoading={isLoading} />
+              <Tabs defaultValue="query" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="query" className="flex items-center gap-2">
+                    <Search className="h-4 w-4" />
+                    Query
+                  </TabsTrigger>
+                  <TabsTrigger value="ingest" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Ingest
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="query">
+                  <QueryForm onSubmit={handleQuery} isLoading={isLoading} />
+                </TabsContent>
+                <TabsContent value="ingest">
+                  <IngestForm />
+                </TabsContent>
+              </Tabs>
             </div>
 
             {/* Results */}
