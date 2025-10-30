@@ -1,23 +1,22 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Search, 
-  Image as ImageIcon, 
-  Brain, 
-  Zap,
-  Upload,
-  MessageSquare,
-  Eye,
-  Layers,
-  ArrowRight,
-  PlayCircle,
-  Sparkles,
-  Target
-} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { motion } from "framer-motion";
+import {
+    ArrowRight,
+    Brain,
+    Eye,
+    Layers,
+    MessageSquare,
+    PlayCircle,
+    Search,
+    Sparkles,
+    Target,
+    Upload,
+    Zap
+} from "lucide-react";
 import { useState } from "react";
 
 interface Feature {

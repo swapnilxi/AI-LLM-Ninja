@@ -1,24 +1,25 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 import uvicorn
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-
+import sys
+import os
 
 load_dotenv()
 
-from Utils.yaml_utils import (
-    load_homeobjects_3k_config,
-    YAMLConfigLoader,
-    create_sample_homeobjects_config,
-)
+# Add yolo_module and Utils to sys.path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'yolo_module'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Utils'))
+
 
 # DB + pipeline imports
 from RAG_Module.db import init_pool, init_db, close_pool, check_db_connection
 from RAG_Module.ingest import ingest_router
 from RAG_Module.retrieval import router as retrieval_router
 
- # Removed imports for retrieve_with_siglip and retrieve_with_google_vision (not found in retrieval.py)
+# Removed imports for retrieve_with_siglip and retrieve_with_google_vision (not found in retrieval.py)
 from prometheus_client import generate_latest
 
 
@@ -44,6 +45,20 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,  # attaching lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

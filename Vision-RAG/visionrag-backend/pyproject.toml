@@ -25,6 +25,9 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.1.0",
     "opencv-python>=4.11.0.86",
     "mediapipe>=0.10.21",
+    "google-genai>=1.39.1",
+    "tenacity>=9.1.2",
+    "ultralytics>=8.3.211",
 ]
 
 [dependency-groups]

@@ -3,12 +3,11 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IngestForm } from "@/components/vision-rag/ingest-form";
 import { QueryForm } from "@/components/vision-rag/query-form";
 import { ResultsDisplay } from "@/components/vision-rag/results-display";
 import { StatusIndicator } from "@/components/vision-rag/status-indicator";
-import { TechStack } from "@/components/vision-rag/tech-stack";
-import { StatsCard } from "@/components/vision-rag/stats-card";
-import { FeatureShowcase } from "@/components/vision-rag/feature-showcase";
 import { visionRagApi } from "@/lib/api/client";
 import { QueryResponse } from "@/types/api";
 import {
@@ -16,7 +15,6 @@ import {
   Brain,
   Database,
   Eye,
-  Image as ImageIcon,
   MessageSquare,
   Search,
   Sparkles,
@@ -31,17 +29,19 @@ export default function Home() {
   const [results, setResults] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleQuery = async (query: string, image: string | undefined, k: number) => {
+  const handleQuery = async (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip' | 'yolo') => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await visionRagApi.queryImage({
+      console.log('[VisionRAG] Sending query:', { query, image, k, engine });
+      const response = await visionRagApi.query({
         question: query,
         image: image,
-        k: k
+        k: k,
+        engine
       });
-      
+      console.log('[VisionRAG] Received response:', response);
       if (response.error) {
         setError(response.error);
         setResults(null);
@@ -49,6 +49,7 @@ export default function Home() {
         setResults(response);
       }
     } catch (err) {
+      console.error('[VisionRAG] Query error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
       setResults(null);
     } finally {
@@ -86,9 +87,26 @@ export default function Home() {
 
           {/* Main Content */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Query Form */}
+            {/* Left Sidebar - Query/Ingest Forms */}
             <div className="lg:col-span-1">
-              <QueryForm onSubmit={handleQuery} isLoading={isLoading} />
+              <Tabs defaultValue="query" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="query" className="flex items-center gap-2">
+                    <Search className="h-4 w-4" />
+                    Query
+                  </TabsTrigger>
+                  <TabsTrigger value="ingest" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Ingest
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="query">
+                  <QueryForm onSubmit={handleQuery} isLoading={isLoading} />
+                </TabsContent>
+                <TabsContent value="ingest">
+                  <IngestForm />
+                </TabsContent>
+              </Tabs>
             </div>
 
             {/* Results */}
@@ -107,22 +125,32 @@ export default function Home() {
 
               {results ? (
                 <ResultsDisplay 
-                  results={results.results} 
-                  query={results.query_text}
+                  results={Array.isArray(results.images) ? results.images : []} 
+                  query={results.question}
                   method={results.method}
                 />
               ) : (
-                <Card className="h-96">
+                <Card className="h-96 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 dark:from-slate-800 dark:via-blue-900 dark:to-purple-900 border-0 shadow-lg">
                   <CardContent className="h-full flex items-center justify-center">
-                    <div className="text-center space-y-4">
-                      <div className="w-16 h-16 mx-auto bg-muted rounded-full flex items-center justify-center">
-                        <Search className="h-8 w-8 text-muted-foreground" />
+                    <div className="text-center space-y-6">
+                      <div className="relative">
+                        <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500 via-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-xl animate-pulse">
+                          <Search className="h-10 w-10 text-white" />
+                        </div>
+                        <div className="absolute -top-1 -right-1 w-6 h-6 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg">
+                          <Sparkles className="h-3 w-3 text-white" />
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-medium mb-2">Ready to Search</h3>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Enter a text query or upload an image to start searching through the knowledge base.
+                      <div className="space-y-3">
+                        <h3 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Ready to Search</h3>
+                        <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
+                          Enter a text query or upload an image to start searching through the knowledge base with AI-powered precision.
                         </p>
+                        <div className="flex items-center justify-center gap-2 pt-2">
+                          <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}} />
+                          <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}} />
+                          <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}} />
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -171,8 +199,8 @@ export default function Home() {
               Smart Embeddings
             </Badge>
             <Badge variant="secondary" className="gap-2 px-4 py-2 text-sm">
-              <ImageIcon className="h-4 w-4" />
-              Object Detection
+              <Eye className="h-4 w-4" />
+              YOLO Object Detection
             </Badge>
           </div>
 
