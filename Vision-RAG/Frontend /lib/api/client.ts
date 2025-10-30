@@ -10,39 +10,27 @@ class VisionRAGApi {
     return response.json();
   }
 
-  async queryImage(request: QueryRequest): Promise<QueryResponse> {
+  async query(request: QueryRequest): Promise<QueryResponse> {
     const formData = new FormData();
-    
-    if (request.question) {
-      formData.append('question', request.question);
-    }
-    
+    if (request.question) formData.append('question', request.question);
     if (request.image) {
-      // Handle both File objects and data URLs
       if (request.image instanceof File) {
         formData.append('image', request.image);
       } else {
         formData.append('image', request.image);
       }
     }
-    
-    if (request.k) {
-      formData.append('k', request.k.toString());
-    }
-
-    if (request.engine) {
-      formData.append('engine', request.engine);
-    }
-
-    const response = await fetch(createApiUrl('queryImage'), {
+    if (request.k) formData.append('k', request.k.toString());
+    // Unified endpoint supports engine/model selection as extra param
+    if (request.engine) formData.append('engine', request.engine);
+    // Optionally add other unified params here
+    const response = await fetch(createApiUrl('query'), {
       method: 'POST',
       body: formData,
     });
-
     if (!response.ok) {
       throw new Error(`Query failed: ${response.statusText}`);
     }
-
     return response.json();
   }
 

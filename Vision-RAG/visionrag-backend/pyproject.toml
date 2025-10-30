@@ -27,6 +27,7 @@ dependencies = [
     "mediapipe>=0.10.21",
     "google-genai>=1.39.1",
     "tenacity>=9.1.2",
+    "ultralytics>=8.3.211",
 ]
 
 [dependency-groups]

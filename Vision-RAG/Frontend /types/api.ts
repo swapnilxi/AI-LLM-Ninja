@@ -8,24 +8,43 @@ export interface VisionRAGResult {
     caption?: string;
     source?: string;
     engine?: string;
+    bbox?: [number, number, number, number]; // YOLO bounding box [x1, y1, x2, y2]
+    cls?: string;           // YOLO class label
+    conf?: number;          // YOLO confidence score
+    crop_path?: string;     // Path to cropped segment image
+    image_id?: number;      // Parent image ID
+    // Optional base64 image payload (when backend returns image bytes inline)
+    image_base64?: string;
+    mime_type?: string;
     [key: string]: any;
   };
   display_info?: {
     caption?: string;
     source?: string;
     engine?: string;
-  image_url?: string;
-  // optionally provided by backend to prefix local file paths
-  image_base_url?: string;
+    image_url?: string;
+    // optionally provided by backend to prefix local file paths
+    image_base_url?: string;
+    bbox?: [number, number, number, number]; // YOLO bounding box [x1, y1, x2, y2]
+    cls?: string;           // YOLO class label
+    conf?: number;          // YOLO confidence score
+    // Inline base64 + mime when provided by backend
+    image_base64?: string;
+    mime_type?: string;
   };
 }
 
 export interface QueryResponse {
   method: string;
-  query_text?: string;
-  image?: string;
-  k: number;
-  results: VisionRAGResult[];
+  question?: string;
+  original_question?: string;
+  answer?: string;
+  caption?: any;
+  caption_used?: boolean;
+  images?: VisionRAGResult[];
+  segments?: VisionRAGResult[];
+  text_chunks?: any[];
+  k?: number;
   error?: string;
 }
 
@@ -45,5 +64,5 @@ export interface QueryRequest {
   question?: string;
   image?: string | File;
   k?: number;
-  engine?: 'gemini' | 'siglip';
+  engine?: 'gemini' | 'siglip' | 'yolo';
 }

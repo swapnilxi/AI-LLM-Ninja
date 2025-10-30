@@ -3,6 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { IngestForm } from "@/components/vision-rag/ingest-form";
 import { QueryForm } from "@/components/vision-rag/query-form";
 import { ResultsDisplay } from "@/components/vision-rag/results-display";
 import { StatusIndicator } from "@/components/vision-rag/status-indicator";
@@ -13,7 +15,6 @@ import {
   Brain,
   Database,
   Eye,
-  Image as ImageIcon,
   MessageSquare,
   Search,
   Sparkles,
@@ -28,18 +29,19 @@ export default function Home() {
   const [results, setResults] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleQuery = async (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip') => {
+  const handleQuery = async (query: string, image: string | undefined, k: number, engine: 'gemini' | 'siglip' | 'yolo') => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await visionRagApi.queryImage({
+      console.log('[VisionRAG] Sending query:', { query, image, k, engine });
+      const response = await visionRagApi.query({
         question: query,
         image: image,
         k: k,
         engine
       });
-      
+      console.log('[VisionRAG] Received response:', response);
       if (response.error) {
         setError(response.error);
         setResults(null);
@@ -47,6 +49,7 @@ export default function Home() {
         setResults(response);
       }
     } catch (err) {
+      console.error('[VisionRAG] Query error:', err);
       setError(err instanceof Error ? err.message : 'An error occurred');
       setResults(null);
     } finally {
@@ -84,9 +87,26 @@ export default function Home() {
 
           {/* Main Content */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Query Form */}
+            {/* Left Sidebar - Query/Ingest Forms */}
             <div className="lg:col-span-1">
-              <QueryForm onSubmit={handleQuery} isLoading={isLoading} />
+              <Tabs defaultValue="query" className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="query" className="flex items-center gap-2">
+                    <Search className="h-4 w-4" />
+                    Query
+                  </TabsTrigger>
+                  <TabsTrigger value="ingest" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Ingest
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="query">
+                  <QueryForm onSubmit={handleQuery} isLoading={isLoading} />
+                </TabsContent>
+                <TabsContent value="ingest">
+                  <IngestForm />
+                </TabsContent>
+              </Tabs>
             </div>
 
             {/* Results */}
@@ -105,8 +125,8 @@ export default function Home() {
 
               {results ? (
                 <ResultsDisplay 
-                  results={results.results} 
-                  query={results.query_text}
+                  results={Array.isArray(results.images) ? results.images : []} 
+                  query={results.question}
                   method={results.method}
                 />
               ) : (
@@ -179,8 +199,8 @@ export default function Home() {
               Smart Embeddings
             </Badge>
             <Badge variant="secondary" className="gap-2 px-4 py-2 text-sm">
-              <ImageIcon className="h-4 w-4" />
-              Object Detection
+              <Eye className="h-4 w-4" />
+              YOLO Object Detection
             </Badge>
           </div>
 
