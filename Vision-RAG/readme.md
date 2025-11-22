@@ -1,5 +1,9 @@
 # Vision-RAG
 
+- Surroundings-aware chatbot that can understand and recognize HomeObjects and answer questions using RAG.
+
+- Hand gesture to interact with images and results and app
+
 Multimodal Retrieval-Augmented Generation (RAG) system that lets you **ingest images, search with text or images, and interact with results using hand gestures**. The project is split into a FastAPI backend and a Next.js frontend.
 
 > Branch: `hand-gesture` – includes experimental hand-gesture control for interacting with images and the application.
