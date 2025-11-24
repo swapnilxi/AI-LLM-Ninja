@@ -64,14 +64,34 @@ with mp_hands.Hands(
         gesture_text = "No Hand"
         if res.multi_hand_landmarks:
             for hand_lms, handed in zip(res.multi_hand_landmarks, res.multi_handedness):
-                mp_drawing.draw_landmarks(
-                    frame, hand_lms, mp_hands.HAND_CONNECTIONS)
-                label = handed.classification[0].label  # "Left" or "Right"
-                gesture_text = classify_gesture(hand_lms.landmark, label)
-        cv2.putText(frame, gesture_text, (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                mp_drawing.draw_landmarks(frame, hand_lms, mp_hands.HAND_CONNECTIONS)
+
+                # --- SOFT GLOW ON INDEX FINGER TIP ---
+                h, w, _ = frame.shape
+                idx_tip = hand_lms.landmark[8]  # Index finger tip
+                cx, cy = int(idx_tip.x * w), int(idx_tip.y * h)
+
+                overlay = frame.copy()
+                # Draw concentric circles with decreasing alpha
+                for radius, alpha in [(40, 0.1), (25, 0.2), (12, 0.3)]:
+                    cv2.circle(overlay, (cx, cy), radius, (0, 255, 255), -1)  # yellow glow
+
+                # Blend overlay with original
+                frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
+
+                # --- OPTIONAL: add small bright core ---
+                cv2.circle(frame, (cx, cy), 6, (255, 255, 255), -1)
+
+                # Label gesture if you had gesture_text earlier
+                cv2.putText(frame, "Glow Demo", (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+                cv2.putText(frame, gesture_text, (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
         cv2.imshow("Hand Gesture", frame)
         if cv2.waitKey(1) & 0xFF == 27:  # ESC
             break
+        
 cap.release()
 cv2.destroyAllWindows()
