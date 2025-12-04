@@ -1,0 +1,5 @@
+- Create hand-gesture RAG UI page
+- Enable pinch-to-zoom for RAG result images
+- Implement particle control in the background using mouse and hand gestures
+- Segment and extract objects from images and display them on-screen with draggable gestures
+- Add ability to ask questions about the selected image or selected object

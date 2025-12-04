@@ -9,26 +9,44 @@ import importlib.util
 # Try direct package import first (works when project root is on PYTHONPATH)
 try:
     from GestureDetection.camera_and_input_layer import InputLayer
+    from GestureDetection.HandGestures import (
+        detect_pinch_gesture,
+        is_inside_box,
+        select_image,
+        move_selected_image,
+        release_image,
+        draw_soft_glow
+    )
+    from GestureDetection.HandRecognition import detect_hand_gesture
 except Exception:
-    # Fallback: load module by file path relative to this test file
+    # Fallback: load modules by file path relative to this test file
     repo_root = Path(__file__).resolve().parents[1]  # visionrag-backend
+    
+    # Load InputLayer
     module_path = repo_root / "GestureDetection" / "camera_and_input_layer.py"
     spec = importlib.util.spec_from_file_location("camera_and_input_layer", str(module_path))
     cam_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cam_mod)
     InputLayer = cam_mod.InputLayer
-
-# Try to import utility; if unavailable provide a simple fallback
-try:
-    from core.utils import is_inside_box
-except Exception:
-    def is_inside_box(px, py, x, y, w, h):
-        """Simple box containment helper fallback.
-
-        px,py: point coordinates
-        x,y,w,h: box origin and size
-        """
-        return (x <= px <= x + w) and (y <= py <= y + h)
+    
+    # Load HandGestures functions
+    module_path = repo_root / "GestureDetection" / "HandGestures.py"
+    spec = importlib.util.spec_from_file_location("hand_gestures", str(module_path))
+    hg_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hg_mod)
+    detect_pinch_gesture = hg_mod.detect_pinch_gesture
+    is_inside_box = hg_mod.is_inside_box
+    select_image = hg_mod.select_image
+    move_selected_image = hg_mod.move_selected_image
+    release_image = hg_mod.release_image
+    draw_soft_glow = hg_mod.draw_soft_glow
+    
+    # Load HandRecognition functions
+    module_path = repo_root / "GestureDetection" / "HandRecognition.py"
+    spec = importlib.util.spec_from_file_location("hand_recognition", str(module_path))
+    hr_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hr_mod)
+    detect_hand_gesture = hr_mod.detect_hand_gesture
 
 # MediaPipe Hand Tracking Setup
 mp_hands = mp.solutions.hands
@@ -36,7 +54,7 @@ mp_draw = mp.solutions.drawing_utils
 
 # Image for testing
 # List of image names to load from 'images' folder
-IMAGE_PATHS = ["image1.jpg", "image2.jpg", "image3.jpg"]  # Add your image filenames here
+IMAGE_PATHS = ["home_1.png", "home_2.png", "home_3.png"]  # Add your image filenames here
 
 class HandTrackingImageTest:
     def __init__(self, image_names, width=1280, height=720):
@@ -82,7 +100,8 @@ class HandTrackingImageTest:
         """
         images = []
         test_dir = Path(__file__).parent
-        images_dir = test_dir / "images"
+        # Use a more descriptive folder name for sample images
+        images_dir = test_dir / "sample_images"
         
         # ============== TESTING: Load from images folder using image_names list ==============
         for img_name in self.image_names:
@@ -161,53 +180,26 @@ class HandTrackingImageTest:
         return images
 
     def detect_hand_gesture(self, frame):
-        """Detect hand position and pinch gesture.
+        """Detect hand position and pinch gesture using HandRecognition module.
+        
+        Delegates to the HandRecognition.detect_hand_gesture() function.
+        
         Returns: (index_finger_pos, is_pinching)
         """
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = self.hands.process(rgb)
-        pinch = False
-        index_pos = (0, 0)
-
-        if result.multi_hand_landmarks:
-            for hand_landmarks in result.multi_hand_landmarks:
-                # Draw hand landmarks
-                mp_draw.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
-
-                # Get thumb and index finger positions
-                index_finger = hand_landmarks.landmark[8]
-                thumb_finger = hand_landmarks.landmark[4]
-
-                ix, iy = int(index_finger.x * self.width), int(index_finger.y * self.height)
-                tx, ty = int(thumb_finger.x * self.width), int(thumb_finger.y * self.height)
-                index_pos = (ix, iy)
-
-                # Detect pinch gesture (close distance between thumb and index)
-                dist = np.hypot(ix - tx, iy - ty)
-                if dist < 50:  # Pinch threshold
-                    pinch = True
-
+        index_pos, pinch, _ = detect_hand_gesture(frame, self.hands, self.width, self.height)
         return index_pos, pinch
 
     def move_selected_image(self, pointer):
         """Move the selected image according to hand pointer."""
-        if self.selected_image is not None:
-            self.selected_image["x"] = pointer[0] - self.selected_image["w"] // 2
-            self.selected_image["y"] = pointer[1] - self.selected_image["h"] // 2
+        move_selected_image(pointer, self.selected_image)
 
     def select_image(self, pointer):
         """Select an image with pinch gesture."""
-        for img in self.images:
-            if is_inside_box(pointer[0], pointer[1], img["x"], img["y"], img["w"], img["h"]):
-                self.selected_image = img
-                img["grabbed"] = True
-                break
+        self.selected_image = select_image(pointer, self.images)
 
     def release_image(self):
         """Release selected image."""
-        if self.selected_image is not None:
-            self.selected_image["grabbed"] = False
-            self.selected_image = None
+        self.selected_image = release_image(self.selected_image)
 
     def mouse_callback(self, event, x, y, flags, param):
         """Handle mouse events for fallback control when camera unavailable."""
