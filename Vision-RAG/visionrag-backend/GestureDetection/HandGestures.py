@@ -1,10 +1,21 @@
 import cv2
-import mediapipe as mp
-import math
 import numpy as np
-
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
+from gesture_utils import (
+    init_mediapipe_hands,
+    bgr_to_rgb,
+    normalize_to_pixel,
+    euclidean_distance,
+    point_in_box,
+    draw_soft_glow as glow,
+    init_camera,
+    mirror_frame,
+    display_frame,
+    close_camera_and_windows,
+    FPSCounter,
+    LANDMARK_INDICES,
+    DEFAULT_PINCH_THRESHOLD,
+    COLORS
+)
 
 # Utility: count raised fingers (simple heuristic for one hand)
 def fingers_up(landmarks, handedness):
@@ -141,6 +152,7 @@ def release_image(selected_image):
 def draw_soft_glow(frame, pos, radius=40, color=(0, 255, 255)):
     """
     Draw a soft glow effect at the given position.
+    Wrapper around gesture_utils.draw_soft_glow for convenience.
     
     Args:
         frame: Input frame to draw on
@@ -151,61 +163,58 @@ def draw_soft_glow(frame, pos, radius=40, color=(0, 255, 255)):
     Returns:
         frame: Modified frame with glow
     """
-    overlay = frame.copy()
-    # Draw concentric circles with decreasing alpha
-    for r, alpha in [(radius, 0.1), (int(radius * 0.625), 0.2), (int(radius * 0.3), 0.3)]:
-        cv2.circle(overlay, pos, r, color, -1)
-    
-    # Blend overlay with original
-    frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
-    
-    # Add small bright core
-    cv2.circle(frame, pos, 6, (255, 255, 255), -1)
-    
-    return frame
+    return glow(frame, pos, radius, color)
 
 
 # ============== EXAMPLE USAGE ==============
 if __name__ == "__main__":
-    cap = cv2.VideoCapture(0)
-    with mp_hands.Hands(
-        max_num_hands=1,
-        model_complexity=1,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.6
-    ) as hands:
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            frame = cv2.flip(frame, 1)  # mirror
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            res = hands.process(rgb)
+    import mediapipe as mp
+    
+    # Initialize camera and hand detection
+    cap = init_camera()
+    hands, mp_drawing = init_mediapipe_hands(max_num_hands=1)
+    mp_hands = mp.solutions.hands
+    fps_counter = FPSCounter()
+    
+    while True:
+        success, frame = cap.read()
+        if not success:
+            break
+        
+        # Mirror frame for user perspective
+        frame = mirror_frame(frame)
+        rgb = bgr_to_rgb(frame)
+        res = hands.process(rgb)
 
-            gesture_text = "No Hand"
-            if res.multi_hand_landmarks:
-                for hand_lms, handed in zip(res.multi_hand_landmarks, res.multi_handedness):
-                    mp_drawing.draw_landmarks(frame, hand_lms, mp_hands.HAND_CONNECTIONS)
+        gesture_text = "No Hand"
+        if res.multi_hand_landmarks:
+            for hand_lms, handed in zip(res.multi_hand_landmarks, res.multi_handedness):
+                mp_drawing.draw_landmarks(frame, hand_lms, mp_hands.HAND_CONNECTIONS)
 
-                    # Detect pinch gesture
-                    h, w, _ = frame.shape
-                    is_pinch, idx_pos, thumb_pos = detect_pinch_gesture(hand_lms, w, h)
-                    
-                    # Draw soft glow on index finger
-                    frame = draw_soft_glow(frame, idx_pos, radius=40, color=(0, 255, 255))
-                    
-                    # Get gesture classification
-                    gesture_text = classify_gesture(hand_lms.landmark, handed.classification[0].label)
-                    
-                    cv2.putText(frame, f"Gesture: {gesture_text}", (20, 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    if is_pinch:
-                        cv2.putText(frame, "PINCHING", (20, 80),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                # Detect pinch gesture
+                h, w, _ = frame.shape
+                is_pinch, idx_pos, thumb_pos = detect_pinch_gesture(hand_lms, w, h)
+                
+                # Draw soft glow on index finger
+                frame = draw_soft_glow(frame, idx_pos, radius=40, color=COLORS['cyan'])
+                
+                # Get gesture classification
+                gesture_text = classify_gesture(hand_lms.landmark, handed.classification[0].label)
+                
+                cv2.putText(frame, f"Gesture: {gesture_text}", (20, 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['green'], 2)
+                if is_pinch:
+                    cv2.putText(frame, "PINCHING", (20, 80),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, COLORS['red'], 2)
 
-            cv2.imshow("Hand Gesture", frame)
-            if cv2.waitKey(1) & 0xFF == 27:  # ESC
-                break
+        # Update FPS
+        fps = fps_counter.update()
+        cv2.putText(frame, f"FPS: {fps:.1f}", (frame.shape[1] - 150, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLORS['green'], 2)
+        
+        # Display frame and check for ESC key
+        if display_frame("Hand Gesture", frame):
+            break
             
-    cap.release()
-    cv2.destroyAllWindows()
+    close_camera_and_windows(cap)
+    hands.close()

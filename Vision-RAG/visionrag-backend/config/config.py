@@ -146,6 +146,24 @@ class RedisSettings(BaseConfigSettings):
     ttl_hours: int = 6  # Cache TTL in hours
 
 
+class GeminiSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="GEMINI__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    api_key: str = ""  # Falls back to GEMINI_API_KEY or GOOGLE_API_KEY env var
+    embed_model: str = "gemini-embedding-001"
+    vision_model: str = "gemini-2.5-flash"
+    timeout_seconds: int = 30
+    max_context_chars: int = 2000
+    retries: int = 3
+    backoff_multiplier: float = 1.5
+
+
 class Settings(BaseConfigSettings):
     app_version: str = "0.1.0"
     debug: bool = True
@@ -170,6 +188,7 @@ class Settings(BaseConfigSettings):
     opensearch: OpenSearchSettings = Field(default_factory=OpenSearchSettings)
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    gemini: GeminiSettings = Field(default_factory=GeminiSettings)
 
     @field_validator("postgres_database_url")
     @classmethod
@@ -178,6 +197,8 @@ class Settings(BaseConfigSettings):
             raise ValueError("Database URL must start with 'postgresql://' or 'postgresql+psycopg2://'")
         return v
 
+from functools import lru_cache
 
+@lru_cache()
 def get_settings() -> Settings:
     return Settings()

@@ -1,11 +1,18 @@
 import cv2
-import mediapipe as mp
 import numpy as np 
-import time 
-
-# MediaPipe Hand Detection Setup
-mpHands = mp.solutions.hands
-mpDraw = mp.solutions.drawing_utils
+import time
+from gesture_utils import (
+    init_mediapipe_hands,
+    bgr_to_rgb,
+    normalize_to_pixel,
+    euclidean_distance,
+    init_camera,
+    display_frame,
+    close_camera_and_windows,
+    FPSCounter,
+    draw_filled_circle,
+    COLORS
+)
 
 
 def detect_hand_landmarks(frame, hands):
@@ -19,13 +26,16 @@ def detect_hand_landmarks(frame, hands):
     Returns:
         tuple: (frame with drawn landmarks, multi_hand_landmarks, multi_handedness)
     """
-    imgRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = hands.process(imgRGB)
+    rgb = bgr_to_rgb(frame)
+    results = hands.process(rgb)
     
     if results.multi_hand_landmarks:
+        import mediapipe as mp
+        mp_drawing = mp.solutions.drawing_utils
+        mp_hands = mp.solutions.hands
         for handLms in results.multi_hand_landmarks:
             # Draw hand landmarks and connections
-            mpDraw.draw_landmarks(frame, handLms, mp.solutions.hands.HAND_CONNECTIONS)
+            mp_drawing.draw_landmarks(frame, handLms, mp_hands.HAND_CONNECTIONS)
     
     return frame, results.multi_hand_landmarks, results.multi_handedness
 
@@ -43,10 +53,9 @@ def get_finger_position(landmarks, frame_width, frame_height, finger_idx):
     Returns:
         tuple: (x, y) pixel coordinates
     """
-    landmark = landmarks.landmark[finger_idx]
-    x = int(landmark.x * frame_width)
-    y = int(landmark.y * frame_height)
-    return (x, y)
+    return normalize_to_pixel(landmarks.landmark[finger_idx].x, 
+                             landmarks.landmark[finger_idx].y, 
+                             frame_width, frame_height)
 
 
 def detect_hand_gesture(frame, hands, width, height):
@@ -62,7 +71,7 @@ def detect_hand_gesture(frame, hands, width, height):
     Returns:
         tuple: (index_finger_pos, is_pinching, frame_with_landmarks)
     """
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    rgb = bgr_to_rgb(frame)
     result = hands.process(rgb)
     pinch = False
     index_pos = (0, 0)
@@ -70,18 +79,21 @@ def detect_hand_gesture(frame, hands, width, height):
     if result.multi_hand_landmarks:
         for hand_landmarks in result.multi_hand_landmarks:
             # Draw hand landmarks
-            mpDraw.draw_landmarks(frame, hand_landmarks, mp.solutions.hands.HAND_CONNECTIONS)
+            import mediapipe as mp
+            mp_drawing = mp.solutions.drawing_utils
+            mp_hands = mp.solutions.hands
+            mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
             # Get thumb (4) and index finger (8) positions
             index_finger = hand_landmarks.landmark[8]
             thumb_finger = hand_landmarks.landmark[4]
 
-            ix, iy = int(index_finger.x * width), int(index_finger.y * height)
-            tx, ty = int(thumb_finger.x * width), int(thumb_finger.y * height)
+            ix, iy = normalize_to_pixel(index_finger.x, index_finger.y, width, height)
+            tx, ty = normalize_to_pixel(thumb_finger.x, thumb_finger.y, width, height)
             index_pos = (ix, iy)
 
             # Detect pinch gesture (close distance between thumb and index)
-            dist = np.hypot(ix - tx, iy - ty)
+            dist = euclidean_distance(ix, iy, tx, ty)
             if dist < 50:  # Pinch threshold
                 pinch = True
 
@@ -90,15 +102,9 @@ def detect_hand_gesture(frame, hands, width, height):
 
 # ============== EXAMPLE USAGE ==============
 if __name__ == "__main__":
-    cap = cv2.VideoCapture(0)
-    hands = mpHands.Hands(
-        static_image_mode=False,
-        max_num_hands=2,
-        min_detection_confidence=0.6,
-        min_tracking_confidence=0.6
-    )
-    
-    ptime = 0
+    cap = init_camera()
+    hands, mp_drawing = init_mediapipe_hands(static_image_mode=False, max_num_hands=2)
+    fps_counter = FPSCounter()
     
     while True:
         success, img = cap.read()
@@ -108,29 +114,25 @@ if __name__ == "__main__":
         frame, multi_hand_landmarks, multi_handedness = detect_hand_landmarks(img, hands)
         
         # Print hand landmarks for debugging
+        h, w, c = img.shape
         if multi_hand_landmarks:
             for handLms in multi_hand_landmarks:
                 for id, lm in enumerate(handLms.landmark):
-                    h, w, c = img.shape
                     cx, cy = int(lm.x * w), int(lm.y * h)
                     print(f"Landmark {id}: ({cx}, {cy})")
                     
                     # Highlight thumb (id 4)
                     if id == 4:
-                        cv2.circle(frame, (cx, cy), 15, (255, 0, 255), cv2.FILLED)
+                        frame = draw_filled_circle(frame, (cx, cy), 15, COLORS['magenta'])
         
-        # Calculate and display FPS
-        ctime = time.time()
-        fps = 1 / (ctime - ptime) if ptime != 0 else 0
-        ptime = ctime
+        # Update and display FPS
+        fps = fps_counter.update()
+        cv2.putText(frame, str(int(fps)), (10, 70), cv2.FONT_HERSHEY_PLAIN, 3, COLORS['magenta'], 3)
         
-        cv2.putText(frame, str(int(fps)), (10, 70), cv2.FONT_HERSHEY_PLAIN, 3, (255, 0, 255), 3)
-        
-        cv2.imshow("Hand Recognition", frame)
-        
-        if cv2.waitKey(1) & 0xFF == 27:  # ESC to exit
+        # Display frame and check for ESC
+        if display_frame("Hand Recognition", frame):
             break
     
-    cap.release()
+    close_camera_and_windows(cap)
     hands.close()
-    cv2.destroyAllWindows() 
+ 

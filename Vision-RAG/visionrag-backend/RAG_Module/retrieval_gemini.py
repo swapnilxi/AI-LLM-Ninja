@@ -13,18 +13,21 @@ import httpx
 from .db import query_knn  
 from .embed import align_vector
 from google import genai  
-from google.genai import types
+from ..config.config import get_settings
+
 
 # ---------- CONFIG ----------
-# CHANGED: USE GEMINI_API_KEY (STANDARD NAME) AND VALIDATE EARLY
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-EMBED_MODEL    = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")  # Correct model name
-GEN_MODEL      = os.getenv("GEMINI_VISION_MODEL",   "gemini-2.5-flash")  # use .env vision model for text generation
+_settings = get_settings()
+_gemini_config = _settings.gemini
 
-TIMEOUT_S      = 30
-MAX_CTX_CHARS  = 2000           # CHANGED: CAP CONTEXT SIZE PER CHUNK
-RETRIES        = 3              # CHANGED: SIMPLE BACKOFF RETRIES
-BACKOFF_SEC    = 1.5            # CHANGED: BACKOFF MULTIPLIER
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or _gemini_config.api_key
+EMBED_MODEL    = os.getenv("GEMINI_EMBED_MODEL", _gemini_config.embed_model)
+GEN_MODEL      = os.getenv("GEMINI_VISION_MODEL", _gemini_config.vision_model)
+
+TIMEOUT_S      = _gemini_config.timeout_seconds
+MAX_CTX_CHARS  = _gemini_config.max_context_chars
+RETRIES        = _gemini_config.retries
+BACKOFF_SEC    = _gemini_config.backoff_multiplier
 
 # ---------- HTTP CLIENT WITH RETRIES ----------
 # CHANGED: SINGLETON-LIKE CLIENT + RETRY WRAPPER
