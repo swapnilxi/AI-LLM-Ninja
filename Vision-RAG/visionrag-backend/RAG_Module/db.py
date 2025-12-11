@@ -10,10 +10,28 @@ load_dotenv(find_dotenv(usecwd=True), override=False)
 
 # ---- Configuration ----
 DB_DSN = os.getenv("DB_URL")  # e.g. postgresql://user:pass@host/db?sslmode=require
-VECTOR_DIM = int(os.getenv("EMBED_DIM", "768"))  # Gemini gemini-embedding-001 = 768
-IVF_LISTS = int(os.getenv("IVF_LISTS", "100"))   # tweak after you have data
-IVF_PROBES = int(os.getenv("IVF_PROBES", "10"))  # query-time probes
-STATEMENT_TIMEOUT_MS = int(os.getenv("PG_STATEMENT_TIMEOUT_MS", "15000"))
+# Try to read DB config from settings (preferred) with env fallbacks
+try:
+    from ..config.config import get_settings
+    _settings = get_settings()
+    db_conf = getattr(_settings, "db", None)
+    if db_conf:
+        DB_DSN = os.getenv("DB_URL") or db_conf.dsn
+        VECTOR_DIM = int(os.getenv("EMBED_DIM", str(db_conf.embed_dim)))
+        IVF_LISTS = int(os.getenv("IVF_LISTS", str(db_conf.ivf_lists)))
+        IVF_PROBES = int(os.getenv("IVF_PROBES", str(db_conf.ivf_probes)))
+        STATEMENT_TIMEOUT_MS = int(os.getenv("PG_STATEMENT_TIMEOUT_MS", str(db_conf.statement_timeout_ms)))
+    else:
+        VECTOR_DIM = int(os.getenv("EMBED_DIM", "768"))  # Gemini gemini-embedding-001 = 768
+        IVF_LISTS = int(os.getenv("IVF_LISTS", "100"))   # tweak after you have data
+        IVF_PROBES = int(os.getenv("IVF_PROBES", "10"))  # query-time probes
+        STATEMENT_TIMEOUT_MS = int(os.getenv("PG_STATEMENT_TIMEOUT_MS", "15000"))
+except Exception:
+    # If config import fails, fall back to environment variables
+    VECTOR_DIM = int(os.getenv("EMBED_DIM", "768"))  # Gemini gemini-embedding-001 = 768
+    IVF_LISTS = int(os.getenv("IVF_LISTS", "100"))   # tweak after you have data
+    IVF_PROBES = int(os.getenv("IVF_PROBES", "10"))  # query-time probes
+    STATEMENT_TIMEOUT_MS = int(os.getenv("PG_STATEMENT_TIMEOUT_MS", "15000"))
 
 _pool: Optional[asyncpg.Pool] = None
 
@@ -311,3 +329,84 @@ async def _demo():
 
 if __name__ == "__main__":
     asyncio.run(_demo())
+
+
+# -----------------------------------------------------------------------------
+# Synchronous class wrapper for legacy code that expects a DatabaseConnection
+# -----------------------------------------------------------------------------
+class DatabaseConnection:
+    """Synchronous wrapper around the async DB helpers.
+
+    Provides simple blocking methods so modules that expect a class
+    instance (like the gesture demo) can call into the DB without
+    managing asyncio themselves.
+    """
+
+    def __init__(self, init_schema: bool = False):
+        # Ensure pool initialized on creation (blocking)
+        try:
+            asyncio.run(init_pool())
+        except RuntimeError:
+            # If an event loop is already running, fall back to creating
+            # the pool in a new task. This is uncommon for simple scripts.
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.run_until_complete(init_pool())
+
+        if init_schema:
+            try:
+                asyncio.run(init_db())
+            except RuntimeError:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.run_until_complete(init_db())
+
+    def close(self) -> None:
+        """Close the underlying connection pool."""
+        try:
+            asyncio.run(close_pool())
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.run_until_complete(close_pool())
+
+    def search_by_embedding(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        """Search images by vector embedding (blocking).
+
+        Returns list of dicts similar to query_knn output.
+        """
+        return asyncio.run(query_knn("vision_rag_images", embedding, k=limit, extra_cols=["image_id", "uri", "meta"]))
+
+    def search_text_chunks(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        return asyncio.run(query_knn("vision_rag_text_chunks", embedding, k=limit, extra_cols=["doc_id", "meta"]))
+
+    def search_segments(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        return asyncio.run(query_knn("vision_rag_image_segments", embedding, k=limit, extra_cols=["image_id", "bbox", "meta"]))
+
+    def get_image_by_id(self, image_id: int) -> Optional[Dict[str, Any]]:
+        """Return single image row by primary id."""
+        async def _get():
+            pool = get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT * FROM vision_rag_images WHERE id = $1 LIMIT 1", image_id)
+                return dict(row) if row else None
+        return asyncio.run(_get())
+
+    def search_by_object(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Simple text-based search over `meta` JSON for object names.
+
+        This is a lightweight fallback used by the demo. For production,
+        replace with a dedicated object-index lookup.
+        """
+        async def _search():
+            pool = get_pool()
+            async with pool.acquire() as conn:
+                # naive full-text-ish search in meta JSON
+                rows = await conn.fetch(
+                    "SELECT id, image_id, uri, meta FROM vision_rag_images WHERE meta::text ILIKE $1 LIMIT $2",
+                    f"%{query}%",
+                    limit,
+                )
+                return [dict(r) for r in rows]
+        return asyncio.run(_search())
+

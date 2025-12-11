@@ -164,6 +164,23 @@ class GeminiSettings(BaseConfigSettings):
     backoff_multiplier: float = 1.5
 
 
+class DatabaseSettings(BaseConfigSettings):
+    model_config = SettingsConfigDict(
+        env_file=[".env", str(ENV_FILE_PATH)],
+        env_prefix="DB__",
+        extra="ignore",
+        frozen=True,
+        case_sensitive=False,
+    )
+
+    # DSN for postgres/pgvector. Can still be overridden with DB_URL env var.
+    dsn: str = "postgresql://rag_user:rag_password@localhost:5432/rag_db"
+    embed_dim: int = 768
+    ivf_lists: int = 100
+    ivf_probes: int = 10
+    statement_timeout_ms: int = 15000
+
+
 class Settings(BaseConfigSettings):
     app_version: str = "0.1.0"
     debug: bool = True
@@ -189,6 +206,7 @@ class Settings(BaseConfigSettings):
     langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     gemini: GeminiSettings = Field(default_factory=GeminiSettings)
+    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
 
     @field_validator("postgres_database_url")
     @classmethod
