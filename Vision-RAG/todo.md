@@ -1,3 +1,5 @@
+- Review gemini retrieval code and learn  https://chatgpt.com/share/69370c46-7518-800c-809e-8902549a2150
+- Review Db code and yolo code
 - Create hand-gesture RAG UI page
 - Enable pinch-to-zoom for RAG result images
 - Implement particle control in the background using mouse and hand gestures

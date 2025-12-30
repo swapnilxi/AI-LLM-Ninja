@@ -1,15 +1,19 @@
 """
-RAG Client for Vision-RAG System
+RAG Client for Vision-RAG System, with hand gesture interation and live camera/interactive image in background 
 Handles database queries, image retrieval, and integration with hand gesture recognition.
 """
 
+import base64
 import cv2
+import json
 import numpy as np
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 import os
 import sys
 import time
+from urllib.parse import urlparse
+import urllib.request
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -17,15 +21,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # Import RAG modules
 try:
     from RAG_Module.retrieval_gemini import GeminiRetrieval
-    from RAG_Module.retrieval_yolo import YOLORetrieval
-    from RAG_Module.db import DatabaseConnection
-    from RAG_Module.schemas import ImageData
 except ImportError:
-    print("Warning: RAG modules not available. Using mock implementations.")
+    print("Warning: Gemini retrieval module not available.")
     GeminiRetrieval = None
-    YOLORetrieval = None
+
+try:
+    from RAG_Module.retrieval_yolo import query_segments
+except ImportError:
+    query_segments = None
+
+try:
+    from RAG_Module.db import DatabaseConnection
+except ImportError:
+    print("Warning: Database module not available.")
     DatabaseConnection = None
-    ImageData = None
+
 
 # Import Hand Gesture modules
 from HandGestures import (
@@ -68,6 +78,14 @@ class RAGImageRetriever:
         """
         self.use_gemini = use_gemini
         self.use_yolo = use_yolo
+        self.base_dir = Path(__file__).resolve().parent
+        self.project_root = self.base_dir.parent
+        self.media_roots = [
+            self.base_dir / "sample_images",
+            self.project_root,
+            self.project_root / "uploads",
+            Path.cwd()
+        ]
         self.db = self._init_database()
         self.gemini_retrieval = self._init_gemini() if use_gemini else None
         self.yolo_retrieval = self._init_yolo() if use_yolo else None
@@ -90,19 +108,87 @@ class RAGImageRetriever:
             print(f"Gemini initialization failed: {e}")
         return None
     
-    def _init_yolo(self) -> Optional['YOLORetrieval']:
+    def _init_yolo(self) -> Optional[object]:
         """Initialize YOLO retrieval"""
-        try:
-            if YOLORetrieval:
-                return YOLORetrieval()
-        except Exception as e:
-            print(f"YOLO initialization failed: {e}")
+        if not query_segments:
+            print("YOLO retrieval functions not available.")
         return None
+
+    def _parse_metadata(self, meta: Optional[Union[str, Dict]]) -> Dict:
+        """Ensure database metadata is returned as a dictionary."""
+        if not meta:
+            return {}
+        if isinstance(meta, dict):
+            return meta
+        if isinstance(meta, str):
+            try:
+                return json.loads(meta)
+            except json.JSONDecodeError:
+                return {}
+        return {}
+
+    def _resolve_image_path(self, uri: Optional[str], meta: Dict) -> Optional[str]:
+        """Try to locate the actual file path for an image result."""
+        candidate = meta.get("image_path") or meta.get("local_path") or meta.get("path")
+
+        if not candidate and uri:
+            parsed = urlparse(uri)
+            if parsed.scheme in ("http", "https", "data"):
+                return uri
+            if parsed.scheme == "file":
+                candidate = parsed.path
+            else:
+                candidate = uri
+
+        if not candidate:
+            return None
+
+        candidate = os.path.expanduser(candidate)
+        if os.path.isabs(candidate) and os.path.exists(candidate):
+            return candidate
+
+        # Try relative to known media roots
+        for root in self.media_roots:
+            potential = Path(root) / candidate
+            if potential.exists():
+                return str(potential)
+
+        return candidate
+
+    def _format_db_result(self, result: Dict) -> Dict:
+        """Normalize raw DB rows into a consistent structure for the gallery."""
+        meta = self._parse_metadata(result.get("meta"))
+        uri = result.get("uri") or meta.get("uri")
+        resolved_path = self._resolve_image_path(uri, meta)
+
+        name = (
+            meta.get("display_name")
+            or meta.get("name")
+            or meta.get("caption")
+        )
+
+        if not name:
+            source = resolved_path or uri or f"Image_{result.get('id', '')}"
+            source_path = urlparse(source).path if source and "://" in str(source) else source
+            name = os.path.basename(source_path) if source_path else f"Image_{result.get('id', '')}"
+
+        normalized = {
+            "id": result.get("id"),
+            "image_id": result.get("image_id") or meta.get("image_id"),
+            "name": name,
+            "path": resolved_path,
+            "uri": uri,
+            "score": result.get("score"),
+            "metadata": meta,
+            "raw_result": result
+        }
+
+        return normalized
     
     def search_images_by_query(self, query: str, limit: int = 5) -> List[Dict]:
         """
         Search database for images matching query using Gemini semantic search.
-        Falls back to demo mode if modules not available.
+        Requires real retrieval and database backends (no demo fallback).
         
         Args:
             query: Search query string (e.g., "living room furniture")
@@ -111,69 +197,25 @@ class RAGImageRetriever:
         Returns:
             List of image dictionaries: [{'name': str, 'path': str, 'id': int, ...}, ...]
         """
-        results = []
-        
+        if not query:
+            return []
+
+        # Require real retrieval and database backends for production usage.
+        if not self.gemini_retrieval:
+            raise RuntimeError("Gemini retrieval backend not initialized. Ensure `RAG_Module.retrieval_gemini.GeminiRetrieval` is available and configured.")
+        if not self.db:
+            raise RuntimeError("Database connection not initialized. Ensure `RAG_Module.db.DatabaseConnection` is available and configured.")
+
         try:
-            if self.gemini_retrieval and self.db:
-                # Use Gemini for semantic search
-                embeddings = self.gemini_retrieval.embed_query(query)
-                results = self.db.search_by_embedding(embeddings, limit=limit)
-            else:
-                # Fallback: use demo mode with sample images
-                print("Using demo mode - searching for sample images")
-                results = self._generate_demo_results(query, limit)
-        except Exception as e:
-            print(f"Error searching images: {e}")
-            results = self._generate_demo_results(query, limit)
-        
-        return results
+            # Use Gemini for semantic search to produce embeddings, then query DB
+            embeddings = self.gemini_retrieval.embed_text(query)
+            raw_results = self.db.search_by_embedding(embeddings, limit=limit)
+            return [self._format_db_result(row) for row in raw_results]
+        except Exception:
+            # Bubble up the error so callers can handle it (no demo fallback)
+            raise
     
-    def _generate_demo_results(self, query: str, limit: int = 5) -> List[Dict]:
-        """
-        Generate demo/sample image results for testing without database.
-        
-        Args:
-            query: Search query string
-            limit: Number of results to generate
-        
-        Returns:
-            List of sample image metadata
-        """
-        # Sample image paths - customize these to match your test images
-        sample_images = [
-            {
-                'id': 1,
-                'name': 'sample_1.jpg',
-                'path': os.path.join(str(Path(__file__).parent), 'sample_images', 'sample_1.jpg'),
-                'category': 'furniture'
-            },
-            {
-                'id': 2,
-                'name': 'sample_2.jpg',
-                'path': os.path.join(str(Path(__file__).parent), 'sample_images', 'sample_2.jpg'),
-                'category': 'furniture'
-            },
-            {
-                'id': 3,
-                'name': 'sample_3.jpg',
-                'path': os.path.join(str(Path(__file__).parent), 'sample_images', 'sample_3.jpg'),
-                'category': 'objects'
-            },
-            {
-                'id': 4,
-                'name': 'sample_4.jpg',
-                'path': os.path.join(str(Path(__file__).parent), 'sample_images', 'sample_4.jpg'),
-                'category': 'objects'
-            },
-            {
-                'id': 5,
-                'name': 'sample_5.jpg',
-                'path': os.path.join(str(Path(__file__).parent), 'sample_images', 'sample_5.jpg'),
-                'category': 'home'
-            }
-        ]
-        
-        return sample_images[:limit]
+    # Demo/mock generation removed: this module now requires real retrieval and DB backends.
     
     def search_images_by_object(self, query: str, limit: int = 5) -> List[Dict]:
         """
@@ -189,13 +231,11 @@ class RAGImageRetriever:
         results = []
         
         try:
-            if self.yolo_retrieval and self.db:
-                # Use YOLO for object-based search
+            if self.db:
                 results = self.db.search_by_object(query, limit=limit)
-                # Filter by YOLO detection confidence
-                results = self.yolo_retrieval.filter_by_detection(results, confidence=0.6)
+                results = [self._format_db_result(row) for row in results]
             else:
-                print("YOLO or Database not initialized")
+                print("Database not initialized for object search")
         except Exception as e:
             print(f"Error searching by object: {e}")
         
@@ -218,69 +258,114 @@ class RAGImageRetriever:
             print(f"Error fetching image by ID: {e}")
         return None
     
-    def load_image_file(self, image_path: str) -> Optional[np.ndarray]:
+    def load_image_file(self, image_source: Union[str, Dict]) -> Optional[np.ndarray]:
         """
-        Load image file from disk.
-        Falls back to generating a placeholder image if file doesn't exist.
+        Load image data from disk, URL, or database.
+        Returns None if the image cannot be located or decoded.
         
         Args:
-            image_path: Full path to image file
+            image_source: Path/URL/Data URI string or normalized metadata dict
         
         Returns:
             OpenCV image array or placeholder image
         """
+        path = ""
+        uri = None
+        db_row_id = None
+        meta: Dict = {}
+
+        if isinstance(image_source, dict):
+            path = image_source.get("path") or ""
+            uri = image_source.get("uri")
+            db_row_id = image_source.get("id")
+            meta = image_source.get("metadata") or {}
+        else:
+            path = image_source or ""
+
+        resolved = path or self._resolve_image_path(uri, meta)
+        if resolved:
+            resolved = resolved.strip()
+
+        # Handle Data URIs directly
+        if resolved and resolved.startswith("data:"):
+            image = self._load_from_data_uri(resolved)
+            if image is not None:
+                return image
+
+        # Handle HTTP/HTTPS URLs
+        if resolved and resolved.startswith(("http://", "https://")):
+            image = self._load_from_url(resolved)
+            if image is not None:
+                return image
+
+        # Handle file:// URIs
+        if resolved and resolved.startswith("file://"):
+            parsed = urlparse(resolved)
+            resolved = parsed.path
+
+        # Attempt to read from filesystem
+        if resolved and os.path.exists(resolved):
+            image = cv2.imread(resolved)
+            if image is not None:
+                return image
+
+        # Attempt to fetch from DB by primary ID
+        if self.db and db_row_id:
+            try:
+                db_row = self.db.get_image_by_id(db_row_id)
+                if db_row and db_row.get("image_data"):
+                    return self._decode_image_bytes(db_row["image_data"])
+                # Retry with URI stored in DB if we didn't already try it
+                db_uri = db_row.get("uri") if db_row else None
+                candidate_path = self._resolve_image_path(db_uri, self._parse_metadata(db_row.get("meta") if db_row else {}))
+                if candidate_path and os.path.exists(candidate_path):
+                    image = cv2.imread(candidate_path)
+                    if image is not None:
+                        return image
+            except Exception as e:
+                print(f"Database image fetch failed: {e}")
+
+        # Image not found in filesystem or DB. Return None so callers can skip/handle missing images.
+        return None
+
+    def _decode_image_bytes(self, data: Union[bytes, memoryview]) -> Optional[np.ndarray]:
+        """Decode raw bytes into an OpenCV image."""
         try:
-            if not os.path.exists(image_path):
-                print(f"Image not found: {image_path} - generating placeholder")
-                return self._generate_placeholder_image(image_path)
-            
-            image = cv2.imread(image_path)
-            if image is None:
-                print(f"Failed to load image: {image_path} - generating placeholder")
-                return self._generate_placeholder_image(image_path)
-            
+            if isinstance(data, memoryview):
+                data = data.tobytes()
+            array = np.frombuffer(data, dtype=np.uint8)
+            image = cv2.imdecode(array, cv2.IMREAD_COLOR)
             return image
         except Exception as e:
-            print(f"Error loading image: {e}")
-            return self._generate_placeholder_image(image_path)
+            print(f"Failed to decode image bytes: {e}")
+            return None
+
+    def _load_from_url(self, url: str) -> Optional[np.ndarray]:
+        """Load image from remote URL."""
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                data = response.read()
+            return self._decode_image_bytes(data)
+        except Exception as e:
+            print(f"Failed to download {url}: {e}")
+            return None
+
+    def _load_from_data_uri(self, data_uri: str) -> Optional[np.ndarray]:
+        """Decode inline base64 data URI."""
+        try:
+            header, encoded = data_uri.split(",", 1)
+            if ";base64" in header:
+                data = base64.b64decode(encoded)
+            else:
+                data = encoded.encode("utf-8")
+            return self._decode_image_bytes(data)
+        except Exception as e:
+            print(f"Failed to decode data URI: {e}")
+            return None
     
-    def _generate_placeholder_image(self, image_name: str, width: int = 150, height: int = 150) -> np.ndarray:
-        """
-        Generate a placeholder image for testing.
-        
-        Args:
-            image_name: Name of the image (used for label)
-            width: Image width
-            height: Image height
-        
-        Returns:
-            Generated placeholder image
-        """
-        import hashlib
-        
-        # Generate a color based on image name hash
-        hash_obj = hashlib.md5(image_name.encode())
-        hash_int = int(hash_obj.hexdigest(), 16)
-        
-        b = (hash_int >> 16) & 255
-        g = (hash_int >> 8) & 255
-        r = hash_int & 255
-        
-        # Create placeholder image
-        placeholder = np.full((height, width, 3), (b, g, r), dtype=np.uint8)
-        
-        # Add text label
-        text = os.path.basename(image_name)[:20]
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.4
-        thickness = 1
-        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-        text_x = (width - text_size[0]) // 2
-        text_y = (height + text_size[1]) // 2
-        
-        cv2.putText(placeholder, text, (text_x, text_y), font, font_scale, (255, 255, 255), thickness)
-        
-        return placeholder
+    # Placeholder image generation removed to avoid mock/demo behavior.
+    # If an image is missing, `load_image_file` now returns `None` and callers
+    # should handle missing images (skip, log, or display a UI placeholder).
 
 
 class InteractiveImageGallery:
@@ -341,8 +426,11 @@ class InteractiveImageGallery:
         thumb_width, thumb_height = 150, 150
         
         for idx, result in enumerate(db_results):
-            # Load image from path
-            image_data = self.rag_retriever.load_image_file(result.get('path', ''))
+            source_hint = result.get('path') or result.get('uri')
+            print(f"Loading image {idx + 1}: {result.get('name', 'Unknown')} ({source_hint or 'binary'})")
+
+            # Load image using resolved metadata
+            image_data = self.rag_retriever.load_image_file(result)
             
             if image_data is not None:
                 # Resize to thumbnail
@@ -352,9 +440,10 @@ class InteractiveImageGallery:
                 gallery_item = {
                     "image": image_data,
                     "name": result.get('name', f'Image_{idx}'),
-                    "path": result.get('path', ''),
+                    "path": result.get('path') or result.get('uri', ''),
                     "id": result.get('id', -1),
-                    "metadata": result,  # Store full metadata from DB
+                    "metadata": result.get('metadata', result),
+                    "raw": result,
                     "x": 50 + (idx % 3) * 200,  # Position: 3 columns
                     "y": 150 + (idx // 3) * 200,  # Position: multiple rows
                     "w": thumb_width,
@@ -363,6 +452,8 @@ class InteractiveImageGallery:
                 }
                 self.gallery_images.append(gallery_item)
                 print(f"✓ Loaded: {gallery_item['name']}")
+            else:
+                print(f"✗ Failed to load: {result.get('name', 'Unknown')}")
         
         print(f"Gallery loaded with {len(self.gallery_images)} images")
         return len(self.gallery_images) > 0
@@ -543,7 +634,7 @@ def demo_rag_image_retrieval():
         print(f"\nFound {len(results)} results:")
         for i, result in enumerate(results, 1):
             print(f"{i}. {result.get('name', 'Unknown')} (ID: {result.get('id', 'N/A')})")
-            print(f"   Path: {result.get('path', 'N/A')}")
+            print(f"   Source: {result.get('path') or result.get('uri', 'N/A')}")
     else:
         print("No results found")
 

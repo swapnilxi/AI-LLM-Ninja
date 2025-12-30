@@ -343,23 +343,20 @@ class DatabaseConnection:
     """
 
     def __init__(self, init_schema: bool = False):
+        # Prevent unsafe use inside a running event loop (e.g. FastAPI).
+        # The synchronous wrapper uses `asyncio.run()` and is only safe
+        # in simple scripts that are not already running an event loop.
+        if asyncio.get_event_loop().is_running():
+            raise RuntimeError(
+                "Synchronous DatabaseConnection cannot be created inside a running event loop. "
+                "Use AsyncDatabase in async applications (e.g. FastAPI)."
+            )
+
         # Ensure pool initialized on creation (blocking)
-        try:
-            asyncio.run(init_pool())
-        except RuntimeError:
-            # If an event loop is already running, fall back to creating
-            # the pool in a new task. This is uncommon for simple scripts.
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.run_until_complete(init_pool())
+        asyncio.run(init_pool())
 
         if init_schema:
-            try:
-                asyncio.run(init_db())
-            except RuntimeError:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.run_until_complete(init_db())
+            asyncio.run(init_db())
 
     def close(self) -> None:
         """Close the underlying connection pool."""
@@ -409,4 +406,53 @@ class DatabaseConnection:
                 )
                 return [dict(r) for r in rows]
         return asyncio.run(_search())
+
+
+class AsyncDatabase:
+    """Asynchronous Database helper class for async applications (FastAPI, etc.).
+
+    Use this class inside async frameworks. It provides async lifecycle
+    methods and async query methods that delegate to the existing
+    module-level async helpers.
+    """
+
+    def __init__(self):
+        self._initted = False
+
+    async def init(self, init_schema: bool = False) -> None:
+        """Initialize connection pool and optionally the schema."""
+        await init_pool()
+        if init_schema:
+            await init_db()
+        self._initted = True
+
+    async def close(self) -> None:
+        """Close the underlying pool."""
+        await close_pool()
+        self._initted = False
+
+    async def search_by_embedding(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        return await query_knn("vision_rag_images", embedding, k=limit, extra_cols=["image_id", "uri", "meta"])
+
+    async def search_text_chunks(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        return await query_knn("vision_rag_text_chunks", embedding, k=limit, extra_cols=["doc_id", "meta"])
+
+    async def search_segments(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        return await query_knn("vision_rag_image_segments", embedding, k=limit, extra_cols=["image_id", "bbox", "meta"])
+
+    async def get_image_by_id(self, image_id: int) -> Optional[Dict[str, Any]]:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM vision_rag_images WHERE id = $1 LIMIT 1", image_id)
+            return dict(row) if row else None
+
+    async def search_by_object(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, image_id, uri, meta FROM vision_rag_images WHERE meta::text ILIKE $1 LIMIT $2",
+                f"%{query}%",
+                limit,
+            )
+            return [dict(r) for r in rows]
 

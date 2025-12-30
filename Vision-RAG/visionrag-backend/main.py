@@ -15,7 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'Utils'))
 
 
 # DB + pipeline imports
-from RAG_Module.db import init_pool, init_db, close_pool, check_db_connection
+from RAG_Module.db import AsyncDatabase, check_db_connection
 from RAG_Module.ingest import ingest_router
 from RAG_Module.retrieval import router as retrieval_router
 
@@ -26,16 +26,28 @@ from prometheus_client import generate_latest
 # Ingestion pipeline imports
 from RAG_Module.ingest import ingest_homeobjects_images
 
+# @asynccontextmanager
+# async def lifespan(app: FastAPI):
+#     # On startup
+#     await init_pool()
+#     await init_db()
+#     yield
+#     # On shutdown
+#     await close_pool()
 
 # ---- Lifespan handler (replaces startup/shutdown) ----
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # On startup
-    await init_pool()
-    await init_db()
-    yield
-    # On shutdown
-    await close_pool()
+    # Create and initialize AsyncDatabase, attach to app.state
+    db = AsyncDatabase()
+    await db.init()
+    app.state.db = db
+    try:
+        yield
+    finally:
+        # Ensure graceful shutdown
+        await app.state.db.close()
+        app.state.db = None
 
 
 app = FastAPI(
