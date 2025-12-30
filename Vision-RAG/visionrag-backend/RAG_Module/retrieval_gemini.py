@@ -13,7 +13,7 @@ import httpx
 from .db import query_knn  
 from .embed import align_vector
 from google import genai  
-from ..config.config import get_settings
+from config.config import get_settings
 
 
 class GeminiRetrieval:
@@ -257,7 +257,8 @@ class GeminiRetrieval:
         include_segments: bool = True,
         include_text_chunks: bool = True,
         include_images: bool = True,
-        enrich_with_caption: bool = True
+        enrich_with_caption: bool = True,
+        min_score: float = 0.0
     ) -> Dict:
         """
         UNIFIED query endpoint that retrieves from multiple sources and generates a grounded answer.
@@ -270,6 +271,7 @@ class GeminiRetrieval:
             include_text_chunks: Search text chunks
             include_images: Search full images
             enrich_with_caption: Use vision model to enhance image queries
+            min_score: Minimum relevance score (0.0 to 1.0) to keep results
         
         Returns:
             {
@@ -321,6 +323,12 @@ class GeminiRetrieval:
                 
         except Exception as e:
             return {"error": f"Database retrieval failed: {e}"}
+
+        # (3.5) Filter by min_score
+        if min_score > 0:
+            text_results = [r for r in text_results if float(r.get("score", 0)) >= min_score]
+            image_results = [r for r in image_results if float(r.get("score", 0)) >= min_score]
+            segment_results = [r for r in segment_results if float(r.get("score", 0)) >= min_score]
 
         # (4) Build unified context for LLM
         all_contexts = []
@@ -384,7 +392,7 @@ class GeminiRetrieval:
         
         # (5) Generate grounded answer
         if not all_contexts:
-            answer = "I don't know - no relevant information found in the database."
+            answer = "I don't know - no relevant information found in the database (all results below threshold)."
         else:
             try:
                 answer = self.generate_grounded(question, all_contexts, image_bytes=img_bytes, mime=img_mime)
@@ -564,14 +572,15 @@ async def unified_query(
     include_segments: bool = True,
     include_text_chunks: bool = True,
     include_images: bool = True,
-    enrich_with_caption: bool = True
+    enrich_with_caption: bool = True,
+    min_score: float = 0.0
 ) -> Dict:
     """
     LEGACY FUNCTION (for backward compatibility).
     Delegates to GeminiRetrieval.unified_query()
     """
     return await _get_default_retrieval().unified_query(
-        question, image, k, include_segments, include_text_chunks, include_images, enrich_with_caption
+        question, image, k, include_segments, include_text_chunks, include_images, enrich_with_caption, min_score
     )
 
 
@@ -586,4 +595,13 @@ def rag_answer(
     Delegates to GeminiRetrieval.rag_answer()
     """
     return _get_default_retrieval().rag_answer(question, image, k, enrich_with_caption)
+
+
+def _load_image_bytes(image: str):
+    """
+    LEGACY FUNCTION (for backward compatibility).
+    Delegates to GeminiRetrieval.load_image_bytes()
+    """
+    return _get_default_retrieval().load_image_bytes(image)
+
 

@@ -191,6 +191,7 @@ async def unified_query_endpoint(
     include_segments: bool = Form(True),
     include_text_chunks: bool = Form(True),
     include_images: bool = Form(True),
+    min_score: float = Form(0.6),
 ):
     """
     🎯 UNIFIED QUERY ENDPOINT - Your one-stop query interface!
@@ -214,6 +215,7 @@ async def unified_query_endpoint(
         include_segments: Search YOLO segments (default: True)
         include_text_chunks: Search text chunks (default: True)
         include_images: Search full images (default: True)
+        min_score: Minimum relevance score (default: 0.6). set to 0 to disable.
     
     Returns:
         {
@@ -268,7 +270,8 @@ async def unified_query_endpoint(
             k=k,
             include_segments=include_segments,
             include_text_chunks=include_text_chunks,
-            include_images=include_images
+            include_images=include_images,
+            min_score=min_score
         )
         
         # Check for errors
