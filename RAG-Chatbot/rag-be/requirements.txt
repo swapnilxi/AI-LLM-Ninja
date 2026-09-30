@@ -1,0 +1,20 @@
+# Backend (FastAPI) - install with:  pip install -r requirements.txt
+# Original dependencies (kept):
+fastapi
+uvicorn
+asyncpg
+transformers
+torch
+psycopg2-binary
+sentence-transformers
+python-dotenv
+openai
+pdfplumber
+
+# Added for the rebuilt app (app/):
+httpx
+pydantic
+python-multipart
+pypdf
+chromadb
+psycopg[binary,pool]

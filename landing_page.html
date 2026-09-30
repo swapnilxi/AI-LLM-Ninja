@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-LLM Ninja</title>
+<style>
+  :root {
+    --bg: #f6f7fb; --card: #fff; --text: #1a1d29; --muted: #5d6478; --border: #e3e6ef;
+    --accent: #5b5bf0;
+    --live: #12a150; --live-bg: #e3f6ec;
+    --wip: #b7791f; --wip-bg: #fdf1d8;
+    --soon: #5d6478; --soon-bg: #eceef4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1117; --card: #181b25; --text: #eceef6; --muted: #9aa1b5; --border: #272b3a;
+      --accent: #8b8bff;
+      --live: #4ade80; --live-bg: #12301f;
+      --wip: #f6c453; --wip-bg: #372a0d;
+      --soon: #9aa1b5; --soon-bg: #232634;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+  header { text-align: center; padding: 56px 16px 24px; }
+  header h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 5vw, 2.6rem); }
+  header p { margin: 0 auto; max-width: 620px; color: var(--muted); }
+  .filters { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 16px 24px; }
+  .filters button { border: 1px solid var(--border); background: var(--card); color: var(--text);
+    padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: .9rem; }
+  .filters button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 16px 64px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
+    display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: inherit;
+    transition: transform .15s, box-shadow .15s, border-color .15s; }
+  a.card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+  .card.disabled { opacity: .75; cursor: not-allowed; }
+  .top { display: flex; justify-content: space-between; align-items: center; }
+  .icon { font-size: 1.8rem; }
+  .badge { font-size: .72rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+  .badge.live { color: var(--live); background: var(--live-bg); }
+  .badge.progress { color: var(--wip); background: var(--wip-bg); }
+  .badge.soon { color: var(--soon); background: var(--soon-bg); }
+  .card h2 { margin: 0; font-size: 1.15rem; }
+  .card p { margin: 0; color: var(--muted); font-size: .92rem; flex: 1; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tags span { font-size: .72rem; color: var(--muted); border: 1px solid var(--border); padding: 1px 8px; border-radius: 6px; }
+  .cta { font-size: .85rem; font-weight: 600; color: var(--accent); }
+  .disabled .cta { color: var(--muted); }
+  footer { text-align: center; color: var(--muted); font-size: .8rem; padding-bottom: 32px; }
+  code { background: var(--soon-bg); padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🥷 AI-LLM Ninja</h1>
+  <p>A collection of AI and LLM applications. Click a live app to open its UI; the rest are marked in progress or coming soon.</p>
+</header>
+
+<div class="filters" id="filters"></div>
+<main id="grid"></main>
+<footer>Live apps open on their local dev-server ports. Start the app first (e.g. <code>npm run dev</code>), or edit the <code>url</code> values in this file.</footer>
+
+<script>
+// status: "live" (clickable) | "progress" | "soon"
+// url: where the app's UI runs. Change ports here to match your setup.
+const APPS = [
+  { icon: "🧠", title: "RAG Chatbot", status: "live", url: "http://localhost:3000",
+    desc: "Upload .txt/.pdf documents and chat with them. FastAPI backend with OpenAI or Groq models and vector embeddings.",
+    tags: ["FastAPI", "Next.js", "RAG"], run: "RAG-Chatbot/rag-ui → npm run dev" },
+  { icon: "👁️", title: "Vision RAG", status: "live", url: "http://localhost:3001",
+    desc: "Retrieval-augmented generation over images and visual documents, with a Next.js front end.",
+    tags: ["Next.js", "Vision", "RAG"], run: "Vision-RAG/visionrag-frontend → npm run dev -- -p 3001" },
+  { icon: "💬", title: "Chat Application", status: "live", url: "http://localhost:5173",
+    desc: "Full-stack chat with roles (Admin/User/Guest), history, analytics and RAG-powered query handling.",
+    tags: ["React", "Flask", "Celery"], run: "Chat-Application/Frontend → npm run dev" },
+  { icon: "🛠️", title: "Machine Maintenance Dashboard", status: "live", url: "http://localhost:3002",
+    desc: "Predicts engine Remaining Useful Life, schedules maintenance, tracks parts and staff, with a chat assistant.",
+    tags: ["Next.js", "Flask", "Predictive ML"], run: "Machine-Maintenance-Tabs/frontend → npm run dev -- -p 3002" },
+  { icon: "🛒", title: "Shopping Assistant", status: "progress", url: "http://localhost:5174",
+    desc: "Conversational shopping helper. Currently a copy of the Chat Application being adapted for product queries.",
+    tags: ["React", "Flask"], run: "Shopping-Assistant/app → npm run dev -- --port 5174" },
+  { icon: "📊", title: "Company Analyzer", status: "progress", url: "http://localhost:3003",
+    desc: "Agent that analyzes company financial data and produces summaries. Work in progress.",
+    tags: ["AI Agent", "Next.js"], run: "AI-Agents/Company_Analyzer/Frontend → npm run dev -- -p 3003" },
+  { icon: "📦", title: "Amazon Research Scraper", status: "progress", url: null,
+    desc: "Scrapes product and search-result data from Amazon pages into CSV. A UI for it is being built.",
+    tags: ["Python", "Scraping"] },
+  { icon: "🎙️", title: "Voice Agent", status: "soon", url: null,
+    desc: "Talk to an AI agent by voice, with speech-to-text and text-to-speech.", tags: ["Agent", "TTS"] },
+  { icon: "✍️", title: "LinkedIn Post Agent", status: "soon", url: null,
+    desc: "Drafts and schedules LinkedIn posts and newsletters from your notes.", tags: ["Agent", "Content"] },
+  { icon: "📈", title: "Equity News Research Bot", status: "soon", url: null,
+    desc: "Researches equities and summarizes the latest market news.", tags: ["Finance", "LLM"] },
+  { icon: "✋", title: "Hand Gesture Control", status: "soon", url: null,
+    desc: "Control interfaces with hand gestures using computer vision.", tags: ["CV", "Gestures"] },
+];
+
+const LABEL = { live: "Live", progress: "In progress", soon: "Coming soon" };
+const CTA = { live: "Open app →", progress: "In progress", soon: "Coming soon" };
+const grid = document.getElementById("grid");
+const filters = document.getElementById("filters");
+let current = "all";
+
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function render() {
+  grid.innerHTML = APPS.filter(a => current === "all" || a.status === current).map(a => {
+    const clickable = a.status === "live" && a.url;
+    const tag = clickable ? "a" : "div";
+    const attrs = clickable
+      ? `href="${a.url}" target="_blank" rel="noopener" title="${esc(a.run || "")}"`
+      : `aria-disabled="true"`;
+    return `<${tag} class="card ${clickable ? "" : "disabled"}" ${attrs}>
+      <div class="top"><span class="icon">${a.icon}</span><span class="badge ${a.status}">${LABEL[a.status]}</span></div>
+      <h2>${esc(a.title)}</h2>
+      <p>${esc(a.desc)}</p>
+      <div class="tags">${a.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div>
+      <span class="cta">${CTA[a.status]}</span>
+    </${tag}>`;
+  }).join("");
+}
+
+[["all", "All"], ["live", "Live"], ["progress", "In progress"], ["soon", "Coming soon"]].forEach(([k, l]) => {
+  const b = document.createElement("button");
+  b.textContent = l;
+  b.className = k === current ? "active" : "";
+  b.onclick = () => { current = k; [...filters.children].forEach(c => c.classList.toggle("active", c === b)); render(); };
+  filters.appendChild(b);
+});
+render();
+</script>
+</body>
+</html>
