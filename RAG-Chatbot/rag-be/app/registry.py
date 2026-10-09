@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     instructions TEXT NOT NULL DEFAULT '',
     is_common INTEGER NOT NULL DEFAULT 0,
     include_common INTEGER NOT NULL DEFAULT 1,
+    use_faqs INTEGER NOT NULL DEFAULT 1,   -- FAQs of this profile are searchable by chat
     status TEXT NOT NULL DEFAULT 'active', -- active | missing (folder gone) | removed (hidden, not re-discovered)
     last_sync_at REAL,
     created_at REAL NOT NULL,
@@ -63,9 +64,44 @@ CREATE TABLE IF NOT EXISTS documents (
     UNIQUE (profile_id, relative_path)
 );
 CREATE INDEX IF NOT EXISTS idx_documents_profile ON documents(profile_id, status);
+CREATE TABLE IF NOT EXISTS faqs (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | INDEXED | FAILED | DISABLED (not in the vector index)
+    indexed_hash TEXT NOT NULL DEFAULT '',  -- sha256(question + answer) that produced the current chunk
+    embedding_model TEXT NOT NULL DEFAULT '',
+    indexed_at REAL,
+    error_message TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_faqs_profile ON faqs(profile_id, position);
+CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE (profile_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_categories_profile ON categories(profile_id, position);
+CREATE TABLE IF NOT EXISTS document_categories (
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    PRIMARY KEY (document_id, category_id)
+);
+CREATE INDEX IF NOT EXISTS idx_document_categories_category ON document_categories(category_id);
 """
 
-_PROFILE_FIELDS = {"name", "description", "instructions", "include_common"}
+_FAQ_FIELDS = {"question", "answer", "category", "enabled", "status", "indexed_hash", "embedding_model", "indexed_at", "error_message"}
+
+_PROFILE_FIELDS = {"name", "description", "instructions", "include_common", "use_faqs"}
 _DOC_FIELDS = {
     "file_path", "filename", "extension", "file_size", "mtime_ns", "file_hash", "indexed_hash", "status",
     "chunk_count", "embedding_model", "embedding_version", "chunking_version", "embedding_dimension",
@@ -80,6 +116,9 @@ class Registry:
         self.scan_lock = threading.RLock()  # serialises filesystem->SQLite scans (request threads + index worker)
         with self._conn() as c:
             c.executescript(SCHEMA)
+            cols = {row["name"] for row in c.execute("PRAGMA table_info(profiles)")}
+            if "use_faqs" not in cols:  # databases created before the FAQ manager
+                c.execute("ALTER TABLE profiles ADD COLUMN use_faqs INTEGER NOT NULL DEFAULT 1")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -100,7 +139,7 @@ class Registry:
         if row is None:
             return None
         d = dict(row)
-        d["is_common"], d["include_common"] = bool(d["is_common"]), bool(d["include_common"])
+        d["is_common"], d["include_common"], d["use_faqs"] = bool(d["is_common"]), bool(d["include_common"]), bool(d["use_faqs"])
         return d
 
     def get_profile(self, profile_id: str) -> dict | None:
@@ -131,8 +170,9 @@ class Registry:
         bad = set(fields) - _PROFILE_FIELDS - {"status", "last_sync_at"}
         if bad:
             raise ValueError(f"Unknown profile fields: {sorted(bad)}")
-        if "include_common" in fields:
-            fields["include_common"] = int(bool(fields["include_common"]))
+        for k in ("include_common", "use_faqs"):
+            if k in fields:
+                fields[k] = int(bool(fields[k]))
         if fields:
             sets = ", ".join(f"{k}=?" for k in fields)
             with self._conn() as c:
@@ -200,8 +240,107 @@ class Registry:
         if profile_id:
             sql += " WHERE profile_id=?"
             args.append(profile_id)
+        faq_sql = ("UPDATE faqs SET status='PENDING', indexed_hash='', embedding_model='', indexed_at=NULL, error_message='', "
+                   "updated_at=?" + (" WHERE profile_id=?" if profile_id else ""))
         with self._conn() as c:
             c.execute(sql, args)
+            c.execute(faq_sql, args)
+
+    # ------------------------------------------------------------ categories (per profile, assignable to documents)
+    def list_categories(self, profile_id: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM categories WHERE profile_id=? ORDER BY position, name COLLATE NOCASE", (profile_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_category(self, category_id: str) -> dict | None:
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM categories WHERE id=?", (category_id,)).fetchone()
+        return dict(r) if r else None
+
+    def create_category(self, profile_id: str, name: str) -> dict:
+        now, cid = time.time(), uuid.uuid4().hex
+        with self._conn() as c:
+            pos = c.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM categories WHERE profile_id=?", (profile_id,)).fetchone()[0]
+            c.execute("INSERT INTO categories (id, profile_id, name, position, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+                      (cid, profile_id, name, pos, now, now))
+        return self.get_category(cid)  # type: ignore[return-value]
+
+    def rename_category(self, category_id: str, name: str) -> dict:
+        with self._conn() as c:
+            c.execute("UPDATE categories SET name=?, updated_at=? WHERE id=?", (name, time.time(), category_id))
+        return self.get_category(category_id)  # type: ignore[return-value]
+
+    def delete_category(self, category_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM categories WHERE id=?", (category_id,))  # document_categories rows cascade
+
+    def document_category_ids(self, profile_id: str) -> dict[str, list[str]]:
+        """document_id -> [category_id, ...] for every document of a profile, in one query."""
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT dc.document_id, dc.category_id FROM document_categories dc "
+                "JOIN documents d ON d.id = dc.document_id WHERE d.profile_id=?", (profile_id,),
+            ).fetchall()
+        out: dict[str, list[str]] = {}
+        for r in rows:
+            out.setdefault(r["document_id"], []).append(r["category_id"])
+        return out
+
+    def category_ids_for_document(self, document_id: str) -> list[str]:
+        with self._conn() as c:
+            rows = c.execute("SELECT category_id FROM document_categories WHERE document_id=?", (document_id,)).fetchall()
+        return [r["category_id"] for r in rows]
+
+    def set_document_categories(self, document_id: str, category_ids: list[str]) -> None:
+        """Full replace: a document's categories become exactly `category_ids`."""
+        with self._conn() as c:
+            c.execute("DELETE FROM document_categories WHERE document_id=?", (document_id,))
+            c.executemany("INSERT OR IGNORE INTO document_categories (document_id, category_id) VALUES (?,?)",
+                          [(document_id, cid) for cid in category_ids])
+
+    # ------------------------------------------------------------ FAQs
+    def list_faqs(self, profile_id: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM faqs WHERE profile_id=? ORDER BY position, created_at", (profile_id,)).fetchall()
+        return [self._faq(r) for r in rows]
+
+    @staticmethod
+    def _faq(row: sqlite3.Row) -> dict:
+        d = dict(row)
+        d["enabled"] = bool(d["enabled"])
+        return d
+
+    def get_faq(self, faq_id: str) -> dict | None:
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM faqs WHERE id=?", (faq_id,)).fetchone()
+        return self._faq(r) if r else None
+
+    def add_faq(self, profile_id: str, question: str, answer: str, *, category: str = "", enabled: bool = True) -> dict:
+        now, fid = time.time(), uuid.uuid4().hex
+        with self._conn() as c:
+            pos = c.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM faqs WHERE profile_id=?", (profile_id,)).fetchone()[0]
+            c.execute("INSERT INTO faqs (id, profile_id, question, answer, category, enabled, position, created_at, updated_at) "
+                      "VALUES (?,?,?,?,?,?,?,?,?)", (fid, profile_id, question, answer, category, int(enabled), pos, now, now))
+        return self.get_faq(fid)  # type: ignore[return-value]
+
+    def update_faq(self, faq_id: str, **fields: Any) -> None:
+        bad = set(fields) - _FAQ_FIELDS
+        if bad:
+            raise ValueError(f"Unknown FAQ fields: {sorted(bad)}")
+        if "enabled" in fields:
+            fields["enabled"] = int(bool(fields["enabled"]))
+        if fields:
+            sets = ", ".join(f"{k}=?" for k in fields)
+            with self._conn() as c:
+                c.execute(f"UPDATE faqs SET {sets}, updated_at=? WHERE id=?", (*fields.values(), time.time(), faq_id))
+
+    def delete_faq(self, faq_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM faqs WHERE id=?", (faq_id,))
+
+    def delete_faqs(self, profile_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM faqs WHERE profile_id=?", (profile_id,))
 
     def recover_interrupted(self) -> None:
         """Documents left INDEXING by a crashed run go back to PENDING (call once at startup)."""
@@ -211,12 +350,22 @@ class Registry:
     def purge_profile_documents(self, profile_id: str) -> None:
         with self._conn() as c:
             c.execute("DELETE FROM documents WHERE profile_id=?", (profile_id,))
+        # FAQs are user-authored content: keep the rows, but their chunks are gone with the profile index
+        self.reset_faq_index_state(profile_id)
+
+    def reset_faq_index_state(self, profile_id: str) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE faqs SET status='PENDING', indexed_hash='', embedding_model='', indexed_at=NULL, "
+                      "error_message='', updated_at=? WHERE profile_id=?", (time.time(), profile_id))
 
     def stats(self, profile_id: str) -> dict:
         with self._conn() as c:
             rows = c.execute("SELECT status, COUNT(*) n, COALESCE(SUM(file_size),0) size FROM documents "
                              "WHERE profile_id=? GROUP BY status", (profile_id,)).fetchall()
+        with self._conn() as c:
+            fq = c.execute("SELECT COUNT(*) n, COALESCE(SUM(status='INDEXED'),0) i, COALESCE(SUM(enabled),0) e FROM faqs "
+                           "WHERE profile_id=?", (profile_id,)).fetchone()
         by = {r["status"]: r["n"] for r in rows}
         total = sum(v for k, v in by.items() if k != DELETED)
         return {"documents": total, "indexed": by.get(INDEXED, 0), "pending": sum(by.get(s, 0) for s in (DISCOVERED, PENDING, STALE, INDEXING)),
-                "failed": by.get(FAILED, 0), "bytes": sum(r["size"] for r in rows), "by_status": by}
+                "failed": by.get(FAILED, 0), "faqs": fq["n"], "faqs_enabled": fq["e"], "faqs_indexed": fq["i"], "bytes": sum(r["size"] for r in rows), "by_status": by}

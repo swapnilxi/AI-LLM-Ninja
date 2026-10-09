@@ -19,8 +19,11 @@ from .catalog import CATALOG
 from .config import BASE_DIR, ConfigManager, load_server_config, resolve_path
 from .embeddings import build_embedder
 from .embeddings import PROVIDERS as EMBEDDERS
+from .guides import AnalyzeRequest, AnalyzeResponse, ExplainRequest, GuidesError
+from .guides import analyze as run_guides_analysis
+from .guides import explain_messages
 from .http import ProviderError
-from .ingestion import EMBEDDING_VERSION, SUPPORTED, IndexManager, chunking_version
+from .ingestion import EMBEDDING_VERSION, SUPPORTED, IndexManager, chunking_version, faq_document_id
 from .llm import PROVIDERS, build_llm
 from .profiles import (UnsafePath, discover_profiles, list_folders, profile_dir, safe_join, scan_profile,
                        slugify)
@@ -82,6 +85,11 @@ async def _unsafe(_: Request, e: UnsafePath):
 @app.exception_handler(IndexMismatchError)
 async def _mismatch(_: Request, e: IndexMismatchError):
     return JSONResponse({"detail": str(e), "code": "index_mismatch"}, status_code=409)
+
+
+@app.exception_handler(GuidesError)
+async def _guides_error(_: Request, e: GuidesError):
+    return JSONResponse({"detail": str(e)}, status_code=422)
 
 
 def require_auth(request: Request) -> None:
@@ -230,7 +238,7 @@ def _profile_view(p: dict) -> dict:
     return {
         "id": p["id"], "name": p["name"], "folder": f"{s.data_dir().name}/{p['folder_path']}",
         "description": p["description"], "instructions": p["instructions"], "is_common": p["is_common"],
-        "include_common": p["include_common"], "status": p["status"], "last_sync_at": p["last_sync_at"],
+        "include_common": p["include_common"], "use_faqs": p["use_faqs"], "status": p["status"], "last_sync_at": p["last_sync_at"],
         "created_at": p["created_at"], "stats": registry.stats(p["id"]),
         "indexing": sync_mgr.status["profiles"].get(p["id"]),
     }
@@ -258,7 +266,7 @@ def _doc_path(profile_id: str, doc: dict) -> Path:
     return target
 
 
-def _doc_view(d: dict) -> dict:
+def _doc_view(d: dict, category_ids: list[str] = ()) -> dict:
     rel = d["relative_path"]
     return {
         "id": d["id"], "filename": d["filename"], "relative_path": rel, "folder": rel.rpartition("/")[0],
@@ -266,6 +274,7 @@ def _doc_view(d: dict) -> dict:
         "status": d["status"], "chunks": d["chunk_count"], "indexed_at": d["indexed_at"], "error": d["error_message"],
         "embedding_model": d["embedding_model"], "embedding_version": d["embedding_version"],
         "chunking_version": d["chunking_version"], "embedding_dimension": d["embedding_dimension"],
+        "category_ids": list(category_ids),
     }
 
 
@@ -281,6 +290,7 @@ class ProfilePatch(BaseModel):
     description: str | None = Field(None, max_length=1000)
     instructions: str | None = Field(None, max_length=20000)
     include_common: bool | None = None
+    use_faqs: bool | None = None
 
 
 @app.get("/api/profiles", dependencies=auth)
@@ -331,6 +341,9 @@ def patch_profile(profile_id: str, body: ProfilePatch):
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if "name" in fields:
         fields["name"] = fields["name"].strip()
+    if "use_faqs" in fields:
+        registry.update_profile(profile_id, use_faqs=fields.pop("use_faqs"))
+        sync_mgr.enqueue(profile_id)  # (un)index this profile's FAQs
     if profile_id == COMMON_ID:
         fields.pop("include_common", None)
     return _profile_view(registry.update_profile(profile_id, **fields))
@@ -382,7 +395,9 @@ def profile_documents(profile_id: str):
     if p["status"] == "active":
         _scan(profile_id)
     docs = [d for d in registry.list_documents(profile_id) if d["status"] != DELETED]
-    return {"profile_id": profile_id, "documents": [_doc_view(d) for d in docs], "folders": list_folders(_folder(profile_id)),
+    cat_ids = registry.document_category_ids(profile_id)
+    return {"profile_id": profile_id, "documents": [_doc_view(d, cat_ids.get(d["id"], [])) for d in docs],
+            "folders": list_folders(_folder(profile_id)), "categories": registry.list_categories(profile_id),
             "stats": registry.stats(profile_id), "supported_extensions": sorted(SUPPORTED)}
 
 
@@ -421,7 +436,8 @@ def reindex_documents(profile_id: str, retry_failed: bool = True):
 
 @app.get("/api/profiles/{profile_id}/documents/{document_id}", dependencies=auth)
 def get_document(profile_id: str, document_id: str):
-    return _doc_view(_doc_or_404(profile_id, document_id))
+    doc = _doc_or_404(profile_id, document_id)
+    return _doc_view(doc, registry.category_ids_for_document(doc["id"]))
 
 
 @app.get("/api/profiles/{profile_id}/documents/{document_id}/info", dependencies=auth)
@@ -457,6 +473,71 @@ def delete_document(profile_id: str, document_id: str):
     registry.delete_document(doc["id"])
     path.unlink(missing_ok=True)
     return {"deleted": doc["relative_path"]}
+
+
+class DocCategoriesPatch(BaseModel):
+    category_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+@app.patch("/api/profiles/{profile_id}/documents/{document_id}/categories", dependencies=auth)
+def set_document_categories(profile_id: str, document_id: str, body: DocCategoriesPatch):
+    """Full replace: the document ends up tagged with exactly these categories (must belong to the same profile)."""
+    _need(server.allow_ui_upload, "Editing documents from the UI")
+    doc = _doc_or_404(profile_id, document_id)
+    valid = {c["id"] for c in registry.list_categories(profile_id)}
+    unknown = [cid for cid in body.category_ids if cid not in valid]
+    if unknown:
+        raise HTTPException(422, f"Unknown category ids for this profile: {unknown}")
+    registry.set_document_categories(doc["id"], body.category_ids)
+    return _doc_view(doc, registry.category_ids_for_document(doc["id"]))
+
+
+# ---------------------------------------------------------------- document categories (per profile)
+class CategoryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+def _category_or_404(profile_id: str, category_id: str) -> dict:
+    _profile_or_404(profile_id)
+    c = registry.get_category(category_id)
+    if c is None or c["profile_id"] != profile_id:
+        raise HTTPException(404, "Category not found")
+    return c
+
+
+@app.get("/api/profiles/{profile_id}/categories", dependencies=auth)
+def list_categories(profile_id: str):
+    _profile_or_404(profile_id)
+    return {"categories": registry.list_categories(profile_id)}
+
+
+@app.post("/api/profiles/{profile_id}/categories", dependencies=auth, status_code=201)
+def create_category(profile_id: str, body: CategoryIn):
+    _need(server.allow_ui_upload, "Editing categories from the UI")
+    _profile_or_404(profile_id)
+    name = body.name.strip()
+    if any(c["name"].lower() == name.lower() for c in registry.list_categories(profile_id)):
+        raise HTTPException(409, f"Category '{name}' already exists for this profile")
+    return registry.create_category(profile_id, name)
+
+
+@app.patch("/api/profiles/{profile_id}/categories/{category_id}", dependencies=auth)
+def rename_category(profile_id: str, category_id: str, body: CategoryIn):
+    _need(server.allow_ui_upload, "Editing categories from the UI")
+    _category_or_404(profile_id, category_id)
+    name = body.name.strip()
+    if any(c["id"] != category_id and c["name"].lower() == name.lower() for c in registry.list_categories(profile_id)):
+        raise HTTPException(409, f"Category '{name}' already exists for this profile")
+    return registry.rename_category(category_id, name)
+
+
+@app.delete("/api/profiles/{profile_id}/categories/{category_id}", dependencies=auth)
+def delete_category(profile_id: str, category_id: str):
+    """Deletes the category and un-tags it from every document (the documents themselves are untouched)."""
+    _need(server.allow_ui_upload, "Editing categories from the UI")
+    _category_or_404(profile_id, category_id)
+    registry.delete_category(category_id)
+    return {"deleted": category_id}
 
 
 # ---------------------------------------------------------------- folders
@@ -503,6 +584,117 @@ def delete_folder(profile_id: str, folder_path: str, recursive: bool = False, co
     else:
         target.rmdir()
     return {"deleted": folder_path}
+
+
+# ---------------------------------------------------------------- FAQs (per profile)
+class FaqIn(BaseModel):
+    """The JSON schema for import / export is exactly {question, answer}; category and enabled are optional extras."""
+    question: str = Field(min_length=1, max_length=500)
+    answer: str = Field(min_length=1, max_length=8000)
+    category: str = Field("", max_length=60)
+    enabled: bool = True
+
+
+class FaqPatch(BaseModel):
+    question: str | None = Field(None, min_length=1, max_length=500)
+    answer: str | None = Field(None, min_length=1, max_length=8000)
+    category: str | None = Field(None, max_length=60)
+    enabled: bool | None = None
+
+
+class FaqImport(BaseModel):
+    faqs: list[FaqIn] = Field(max_length=2000)
+
+
+def _faq_view(f: dict) -> dict:
+    return {k: f[k] for k in ("id", "question", "answer", "category", "enabled", "position", "status", "indexed_at", "error_message", "updated_at")}
+
+
+def _faq_or_404(profile_id: str, faq_id: str) -> dict:
+    _profile_or_404(profile_id)
+    f = registry.get_faq(faq_id)
+    if f is None or f["profile_id"] != profile_id:
+        raise HTTPException(404, "FAQ not found")
+    return f
+
+
+def _norm(q: str) -> str:
+    return " ".join(q.lower().split())
+
+
+@app.get("/api/profiles/{profile_id}/faqs", dependencies=auth)
+def list_faqs(profile_id: str):
+    p = _profile_or_404(profile_id)
+    return {"profile_id": profile_id, "use_faqs": p["use_faqs"], "faqs": [_faq_view(f) for f in registry.list_faqs(profile_id)],
+            "stats": registry.stats(profile_id)}
+
+
+@app.post("/api/profiles/{profile_id}/faqs", dependencies=auth, status_code=201)
+def create_faq(profile_id: str, body: FaqIn):
+    _need(server.allow_ui_upload, "Editing FAQs from the UI")
+    _profile_or_404(profile_id)
+    if any(_norm(f["question"]) == _norm(body.question) for f in registry.list_faqs(profile_id)):
+        raise HTTPException(409, "A FAQ with this question already exists")
+    f = registry.add_faq(profile_id, body.question.strip(), body.answer.strip(), category=body.category.strip(), enabled=body.enabled)
+    sync_mgr.enqueue(profile_id)
+    return _faq_view(f)
+
+
+@app.post("/api/profiles/{profile_id}/faqs/import", dependencies=auth)
+def import_faqs(profile_id: str, body: FaqImport, mode: str = "append"):
+    """`append` adds new questions and skips ones that already exist; `replace` deletes every FAQ of the profile first."""
+    _need(server.allow_ui_upload, "Editing FAQs from the UI")
+    _profile_or_404(profile_id)
+    if mode not in ("append", "replace"):
+        raise HTTPException(422, "mode must be 'append' or 'replace'")
+    store = build_store(cfg.current)
+    if mode == "replace":
+        for f in registry.list_faqs(profile_id):
+            store.delete_document(faq_document_id(f["id"]))
+        registry.delete_faqs(profile_id)
+    seen = {_norm(f["question"]) for f in registry.list_faqs(profile_id)}
+    added = skipped = 0
+    for item in body.faqs:
+        key = _norm(item.question)
+        if key in seen:
+            skipped += 1
+            continue
+        seen.add(key)
+        registry.add_faq(profile_id, item.question.strip(), item.answer.strip(), category=item.category.strip(), enabled=item.enabled)
+        added += 1
+    sync_mgr.enqueue(profile_id)
+    return {"added": added, "skipped_duplicates": skipped, "mode": mode, "total": len(registry.list_faqs(profile_id))}
+
+
+@app.get("/api/profiles/{profile_id}/faqs/export", dependencies=auth)
+def export_faqs(profile_id: str, enabled_only: bool = False):
+    """Download as JSON: [{"question": ..., "answer": ...}, ...] (the same schema import accepts)."""
+    _profile_or_404(profile_id)
+    rows = [{"question": f["question"], "answer": f["answer"]} for f in registry.list_faqs(profile_id) if f["enabled"] or not enabled_only]
+    return JSONResponse(rows, headers={"Content-Disposition": f'attachment; filename="{profile_id}-faqs.json"'})
+
+
+@app.patch("/api/profiles/{profile_id}/faqs/{faq_id}", dependencies=auth)
+def update_faq(profile_id: str, faq_id: str, body: FaqPatch):
+    _need(server.allow_ui_upload, "Editing FAQs from the UI")
+    cur = _faq_or_404(profile_id, faq_id)
+    fields = {k: (v.strip() if isinstance(v, str) else v) for k, v in body.model_dump().items() if v is not None}
+    if "question" in fields and any(f["id"] != faq_id and _norm(f["question"]) == _norm(fields["question"]) for f in registry.list_faqs(profile_id)):
+        raise HTTPException(409, "A FAQ with this question already exists")
+    if {"question", "answer"} & set(fields) or ("enabled" in fields and fields["enabled"] != cur["enabled"]):
+        fields["status"] = "PENDING"  # content or visibility changed: the indexer re-embeds / removes it
+    registry.update_faq(faq_id, **fields)
+    sync_mgr.enqueue(profile_id)
+    return _faq_view(registry.get_faq(faq_id))  # type: ignore[arg-type]
+
+
+@app.delete("/api/profiles/{profile_id}/faqs/{faq_id}", dependencies=auth)
+def delete_faq(profile_id: str, faq_id: str):
+    _need(server.allow_ui_upload, "Editing FAQs from the UI")
+    _faq_or_404(profile_id, faq_id)
+    build_store(cfg.current).delete_document(faq_document_id(faq_id))
+    registry.delete_faq(faq_id)
+    return {"deleted": faq_id}
 
 
 # ---------------------------------------------------------------- ingestion status
@@ -583,6 +775,32 @@ def chat(body: ChatRequest):
                 yield pack(ev)
         except Exception as e:  # mid-stream LLM failure
             yield pack({"type": "error", "message": str(e)})
+
+    return StreamingResponse(sse(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------- guides (RAG best-practice checklist)
+@app.post("/api/guides/analyze", dependencies=auth, response_model=AnalyzeResponse)
+def guides_analyze(body: AnalyzeRequest):
+    """Judge this app's own code, or a public GitHub repo, against the checklist the UI sends."""
+    return run_guides_analysis(cfg.current, body.repo_url, body.checklist)
+
+
+@app.post("/api/guides/explain", dependencies=auth)
+def guides_explain(body: ExplainRequest):
+    """Explain one checklist item, with optional follow-up questions (history)."""
+    llm = build_llm(cfg.current)
+    messages = explain_messages(body)
+    if not body.stream:
+        return {"answer": llm.chat(messages)}
+
+    def sse():
+        try:
+            for token in llm.stream(messages):
+                yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        except Exception as e:  # mid-stream LLM failure
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(sse(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

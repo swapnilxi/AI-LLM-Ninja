@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError, AppStatus, getToken, Profile, Settings, setToken, SyncStatus } from "@/lib/api";
 import { useChats } from "@/lib/chats";
+import { applyAppearance } from "@/lib/theme";
 import Chat from "@/components/Chat";
 import Documents from "@/components/Documents";
+import FaqManager from "@/components/FaqManager";
+import Guides from "@/components/Guides";
 import Overview from "@/components/Overview";
 import ProfileSwitcher from "@/components/ProfileSwitcher";
 import Profiles from "@/components/Profiles";
@@ -13,7 +16,7 @@ import Sidebar, { Health, View } from "@/components/Sidebar";
 import { Icon } from "@/components/Icons";
 import { ToastProvider } from "@/components/ui";
 
-const VIEWS: View[] = ["overview", "chat", "documents", "profiles", "settings"];
+const VIEWS: View[] = ["overview", "chat", "documents", "faqs", "guides", "profiles", "settings"];
 const pref = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const setPref = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} };
 
@@ -50,6 +53,10 @@ export default function Home() {
   const setProfileId = useCallback((id: string) => { setProfileIdState(id); setPref("rag.profile", id); }, []);
   const toggleCollapsed = () => setCollapsed((c) => { setPref("rag.sidebar", c ? "open" : "collapsed"); return !c; });
 
+  useEffect(() => {
+    applyAppearance(profileId);
+  }, [profileId]);
+
   const probe = useCallback(async () => {
     setProbing(true);
     try {
@@ -80,7 +87,10 @@ export default function Home() {
 
   // the active profile: remembered choice, else the first regular profile, else Common
   const profile = useMemo(
-    () => profiles.find((p) => p.id === profileId) ?? profiles.find((p) => !p.is_common) ?? profiles[0] ?? null,
+    () => {
+      const usable = profiles.filter((p) => p.status === "active"); // a profile whose folder vanished can't be chatted with
+      return usable.find((p) => p.id === profileId) ?? usable.find((p) => !p.is_common) ?? usable[0] ?? null;
+    },
     [profiles, profileId],
   );
   const activeId = profile?.id ?? "";
@@ -110,6 +120,8 @@ export default function Home() {
         <Sidebar
           view={view} onView={setView}
           chats={profileChats} activeChatId={chats.activeId} profileName={profile?.name ?? "—"}
+          profiles={profiles} activeProfileId={activeId} onSelectProfile={setProfileId}
+          onCreateProfile={() => { setCreating(true); setView("profiles"); }} onManageProfiles={() => setView("profiles")}
           onSelectChat={chats.setActiveId} onNewChat={() => activeId && chats.create(activeId)} onDeleteChat={chats.remove}
           health={health} probing={probing} onProbe={probe}
           signedIn={!!getToken()} onSignOut={() => { setToken(""); location.reload(); }}
@@ -121,7 +133,7 @@ export default function Home() {
           <div className="topbar">
             <div className="topbar-left">
               <button className="icon-btn" onClick={() => setDrawer(true)} aria-label="Open menu"><Icon name="menu" size={20} /></button>
-              <strong className="topbar-title">{view === "chat" ? (chats.active?.title || "RAG Chat") : view[0].toUpperCase() + view.slice(1)}</strong>
+              <strong className="topbar-title">{view === "chat" ? (chats.active?.title || "RAG Chat") : view === "faqs" ? "FAQs" : view[0].toUpperCase() + view.slice(1)}</strong>
             </div>
 
             <div className="header-status-badges">
@@ -183,6 +195,8 @@ export default function Home() {
             </div>
             {view === "overview" && <div className="view scroll"><Overview status={status} config={config} profile={profile} onNavigate={setView} onRefresh={probe} /></div>}
             {view === "documents" && <div className="view scroll">{profile ? <Documents profile={profile} sync={sync} canEdit={canUpload} onChanged={probe} /> : <div className="empty"><p className="muted">No profile selected.</p></div>}</div>}
+            {view === "faqs" && <div className="view scroll">{profile ? <FaqManager profile={profile} sync={sync} canEdit={canUpload} onChanged={probe} /> : <div className="empty"><p className="muted">No profile selected.</p></div>}</div>}
+            {view === "guides" && <div className="view scroll"><Guides /></div>}
             {view === "profiles" && (
               <div className="view scroll">
                 <Profiles profiles={profiles} activeId={activeId} canEdit={canEditConfig} canDeleteFiles={canUpload} creating={creating}
@@ -190,7 +204,11 @@ export default function Home() {
                   onOpenDocuments={(id) => { setProfileId(id); setView("documents"); }} onChanged={probe} />
               </div>
             )}
-            {view === "settings" && <div className="view scroll"><SettingsPanel onSaved={probe} /></div>}
+            {view === "settings" && (
+              <div className="view scroll">
+                <SettingsPanel onSaved={probe} profile={profile} profiles={profiles} onProfileChange={setProfileId} />
+              </div>
+            )}
           </div>
         </div>
       </div>

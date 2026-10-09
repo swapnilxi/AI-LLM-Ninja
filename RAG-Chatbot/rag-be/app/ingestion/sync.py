@@ -8,6 +8,7 @@ Jobs run on one background worker so chat requests never wait for indexing.
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -37,6 +38,7 @@ class SyncResult:
     chunks: int = 0
     errors: dict[str, str] = field(default_factory=dict)
     seconds: float = 0.0
+    faqs: int = 0  # FAQ entries (re)embedded in this run
 
     def merge(self, other: "SyncResult", prefix: str = "") -> None:
         self.added += [prefix + x for x in other.added]
@@ -44,8 +46,56 @@ class SyncResult:
         self.removed += [prefix + x for x in other.removed]
         self.unchanged += other.unchanged
         self.chunks += other.chunks
+        self.faqs += other.faqs
         self.errors.update({prefix + k: v for k, v in other.errors.items()})
         self.seconds = round(self.seconds + other.seconds, 2)
+
+
+FAQ_PREFIX = "faq-"
+
+
+def faq_document_id(faq_id: str) -> str:
+    """Vector-store document id of a FAQ (distinct from file document ids)."""
+    return FAQ_PREFIX + faq_id
+
+
+def faq_text(question: str, answer: str) -> str:
+    return f"Q: {question.strip()}\nA: {answer.strip()}"
+
+
+def faq_hash(question: str, answer: str) -> str:
+    return hashlib.sha256(faq_text(question, answer).encode()).hexdigest()
+
+
+def sync_faqs(reg: Registry, profile_id: str, embedder, store, res: SyncResult) -> None:
+    """One chunk per FAQ. Embeds new / edited FAQs (or ones made with another embedding model) and removes
+    the chunks of disabled FAQs, so search only ever sees the FAQs the user has switched on."""
+    profile = reg.get_profile(profile_id)
+    active = bool(profile and profile["use_faqs"])
+    todo = []
+    for f in reg.list_faqs(profile_id):
+        doc_id = faq_document_id(f["id"])
+        if not (active and f["enabled"]):
+            if f["status"] != "DISABLED":
+                store.delete_document(doc_id)
+                reg.update_faq(f["id"], status="DISABLED", indexed_hash="", embedding_model="", error_message="")
+            continue
+        if f["status"] != "INDEXED" or f["indexed_hash"] != faq_hash(f["question"], f["answer"]) or f["embedding_model"] != embedder.signature:
+            todo.append(f)
+    for i in range(0, len(todo), 64):
+        batch = todo[i : i + 64]
+        try:
+            vectors = embedder.embed_documents([faq_text(f["question"], f["answer"]) for f in batch])
+            for f, vec in zip(batch, vectors):
+                doc_id, h = faq_document_id(f["id"]), faq_hash(f["question"], f["answer"])
+                store.delete_document(doc_id)
+                store.add([Chunk(profile_id, doc_id, "FAQ: " + f["question"][:120], 0, faq_text(f["question"], f["answer"]), h)], [vec], embedder.signature)
+                reg.update_faq(f["id"], status="INDEXED", indexed_hash=h, embedding_model=embedder.signature, indexed_at=time.time(), error_message="")
+                res.faqs += 1
+        except Exception as e:  # noqa: BLE001 - keep going; the FAQ shows FAILED with the reason
+            for f in batch:
+                reg.update_faq(f["id"], status="FAILED", error_message=str(e)[:500])
+                res.errors["FAQ: " + f["question"][:60]] = str(e)
 
 
 def index_profile(reg: Registry, settings: Settings, profile_id: str, *, retry_failed: bool = False,
@@ -106,6 +156,9 @@ def index_profile(reg: Registry, settings: Settings, profile_id: str, *, retry_f
             store.delete_document(doc["id"])
             reg.update_document(doc["id"], status=FAILED, error_message=str(e)[:500], chunk_count=0, indexed_hash="")
             res.errors[rel] = str(e)
+
+    progress(f"[{profile_id}] FAQs")
+    sync_faqs(reg, profile_id, embedder, store, res)
 
     reg.update_profile(profile_id, last_sync_at=time.time())
     res.seconds = round(time.time() - t0, 2)

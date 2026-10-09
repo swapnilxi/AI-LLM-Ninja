@@ -5,8 +5,9 @@ import type { Profile } from "@/lib/api";
 import { Icon } from "./Icons";
 
 /** Compact profile picker for the top bar: current profile + a menu to switch, create or manage. */
-export default function ProfileSwitcher({ profiles, activeId, onSelect, onCreate, onManage }: {
+export default function ProfileSwitcher({ profiles, activeId, onSelect, onCreate, onManage, variant = "compact" }: {
   profiles: Profile[]; activeId: string; onSelect: (id: string) => void; onCreate: () => void; onManage: () => void;
+  variant?: "compact" | "side"; // side = large avatar block for the sidebar
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -21,18 +22,30 @@ export default function ProfileSwitcher({ profiles, activeId, onSelect, onCreate
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [open]);
 
+  const usable = profiles.filter((p) => p.status === "active");
   const icon = (p: Profile) => (p.is_common ? "layers" : "database");
   return (
-    <div className="profile-switch" ref={ref}>
+    <div className={`profile-switch ${variant === "side" ? "side" : ""}`} ref={ref}>
+      {variant === "side" ? (
+        <button className="profile-side-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} title={`Active profile: ${active?.name ?? "none"} — click to switch`}>
+          <span className="profile-avatar">{(active?.name ?? "?").trim().charAt(0).toUpperCase()}</span>
+          <span className="profile-side-text lbl">
+            <span className="profile-side-label">Active profile</span>
+            <span className="profile-side-name">{active?.name ?? "Select profile"}</span>
+          </span>
+          <Icon name="right" size={14} className="lbl" style={{ transform: "rotate(90deg)" }} />
+        </button>
+      ) : (
       <button className="profile-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} title="Active profile — chat only searches this profile's documents">
         <Icon name={active ? icon(active) : "database"} size={15} />
         <span className="profile-btn-name">{active?.name ?? "Select profile"}</span>
         <Icon name="right" size={12} style={{ transform: "rotate(90deg)" }} />
       </button>
+      )}
       {open && (
         <div className="profile-menu" role="listbox">
           <div className="profile-menu-title">Profile</div>
-          {profiles.map((p) => (
+          {usable.map((p) => (
             <button key={p.id} role="option" aria-selected={p.id === activeId} className={`profile-opt ${p.id === activeId ? "active" : ""}`}
               onClick={() => { onSelect(p.id); setOpen(false); }}>
               <Icon name={icon(p)} size={15} />

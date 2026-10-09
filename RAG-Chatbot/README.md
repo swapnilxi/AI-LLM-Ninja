@@ -127,6 +127,29 @@ How this is enforced, in layers:
 
 The system message is assembled in fixed order: base system prompt (Settings → RAG) → a notice that retrieved text is untrusted → **Common instructions** (the `instructions` field of the `common` profile) → **Profile instructions**. Retrieved chunks go into the *user* message inside `<documents>…</documents>`, so they cannot masquerade as instructions.
 
+## FAQ Manager
+
+Each profile (including `common`, whose FAQs are shared) has its own FAQs: curated `{question, answer}` pairs kept in SQLite (`faqs` table: `profile_id, question, answer, category, enabled, position, status, indexed_hash, embedding_model`). Manage them in the **FAQs** screen: add, edit, delete, enable/disable each one, search and filter by category/status, and import/export JSON.
+
+- **JSON schema** (import and export use the same one):
+  ```json
+  [
+    { "question": "What are your opening hours?", "answer": "9 to 5, Monday to Friday." }
+  ]
+  ```
+  `{"faqs": [...]}` is accepted on import too, and `category` / `enabled` are optional extras. Limits: question 500 chars, answer 8000, 2000 per import. Import modes: **add** (questions that already exist, ignoring case and spacing, are skipped) or **replace** (all FAQs of the profile are removed first). Export downloads exactly `[{question, answer}]`. Examples are in `faq-examples/`; they live outside `rag-data/` on purpose, so they are not indexed as documents.
+- **How they are used:** every enabled FAQ is embedded as one chunk (`Q: …\nA: …`) into the same vector store, tagged with the profile's `profile_id`, so FAQ retrieval has exactly the same isolation as documents (`profile + common` only). Editing or enabling/disabling a FAQ re-indexes just that entry in the background; deleting removes its chunk immediately. Citations show a **FAQ** badge; the prompt tells the model to prefer FAQ passages when they match.
+- **Configuration:** the *Use FAQs when answering* switch (per profile) removes all of that profile's FAQs from search without deleting them; each FAQ also has its own enable switch.
+- **API:** `GET/POST /profiles/{pid}/faqs`, `PATCH/DELETE /profiles/{pid}/faqs/{id}`, `POST /profiles/{pid}/faqs/import?mode=append|replace`, `GET /profiles/{pid}/faqs/export`. Writes need `ALLOW_UI_UPLOAD`.
+
+## Document Categories
+
+Each profile keeps its own list of named categories (`categories` table) and can tag any of its documents with any number of them (`document_categories`, a many-to-many join). Categories are purely organizational — they don't affect retrieval or chat — and are never shared across profiles: `company1` and `company2` can each have a "Billing" category, but they are different rows and tagging a document in one never touches the other.
+
+Manage the list from the **Categories** button on the Documents screen (create, rename, delete), filter the document table by one category at a time, and tag/untag an individual document from its details panel. Deleting a category untags it from every document but leaves the documents themselves untouched.
+
+- **API:** `GET/POST /profiles/{pid}/categories`, `PATCH/DELETE /profiles/{pid}/categories/{id}`, `PATCH /profiles/{pid}/documents/{id}/categories {category_ids}` (full replace). Writes need `ALLOW_UI_UPLOAD`.
+
 ## SQLite Schema
 
 `rag-be/data/app.db` (`DB_FILE`). The filesystem holds the documents, the vector store holds the chunks, SQLite holds the app's metadata and indexing state.
@@ -140,12 +163,18 @@ folder_path                                file_path       absolute managed path
 description                                relative_path   inside the profile folder (unique per profile)
 instructions                               filename, extension, file_size, mtime_ns
 is_common                                  file_hash       sha256 of the file on disk
-include_common                             indexed_hash    sha256 of the content that produced the chunks
+include_common, use_faqs                    indexed_hash    sha256 of the content that produced the chunks
 status  active | missing | removed         status          DISCOVERED PENDING INDEXING INDEXED STALE FAILED DELETED
 last_sync_at                               chunk_count, indexed_at, error_message
 created_at, updated_at                     embedding_model  (provider|model|dims), embedding_version,
                                            chunking_version, embedding_dimension
                                            created_at, updated_at
+
+faqs: id, profile_id → profiles.id, question, answer, category, enabled, position,
+      status (PENDING | INDEXED | FAILED | DISABLED), indexed_hash, embedding_model, indexed_at, error_message
+
+categories: id, profile_id → profiles.id, name (unique per profile), position, created_at, updated_at
+document_categories: document_id → documents.id, category_id → categories.id   (many-to-many, PK on the pair)
 ```
 
 ## Profile Discovery
@@ -198,6 +227,10 @@ POST   /profiles/{pid}/documents/reindex      re-embed the whole profile
 DELETE /profiles/{pid}/documents/{id}         delete file + chunks
 GET/POST /profiles/{pid}/folders              list / create {path}
 DELETE /profiles/{pid}/folders/{path}[?recursive=true&confirm=true]
+
+GET/POST /profiles/{pid}/categories           list / create {name}
+PATCH/DELETE /profiles/{pid}/categories/{id}  rename {name} / delete (untags documents)
+PATCH  /profiles/{pid}/documents/{id}/categories {category_ids}   replace a document's categories
 
 POST   /chat  {profile_id, message, history, stream}      SSE: sources → token… → done
 POST   /query-context {profile_id, query, limit}          retrieval only

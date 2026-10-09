@@ -2,17 +2,21 @@
 
 import { useEffect, useState } from "react";
 import type { Chat } from "@/lib/chats";
-import { applyTheme, getTheme, Theme } from "@/lib/theme";
+import { applyAppearance, getProfileTheme, Theme } from "@/lib/theme";
 import { Icon, IconName } from "./Icons";
+import type { Profile } from "@/lib/api";
+import ProfileSwitcher from "./ProfileSwitcher";
 import { Spinner } from "./ui";
 
-export type View = "overview" | "chat" | "documents" | "profiles" | "settings";
+export type View = "overview" | "chat" | "documents" | "faqs" | "guides" | "profiles" | "settings";
 const NAV: { id: View; label: string; icon: IconName }[] = [
   { id: "overview", label: "Overview", icon: "grid" },
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "documents", label: "Documents", icon: "doc" },
+  { id: "faqs", label: "FAQs", icon: "help" },
+  { id: "guides", label: "Guides", icon: "book" },
   { id: "profiles", label: "Profiles", icon: "database" },
-  { id: "settings", label: "Settings", icon: "sliders" },
+  { id: "settings", label: "Settings", icon: "gear" },
 ];
 
 export type Health = {
@@ -32,6 +36,11 @@ type Props = {
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
   profileName: string;
+  profiles: Profile[];
+  activeProfileId: string;
+  onSelectProfile: (id: string) => void;
+  onCreateProfile: () => void;
+  onManageProfiles: () => void;
   onDeleteChat: (id: string) => void;
   health: Health;
   probing: boolean;
@@ -48,8 +57,13 @@ const dot = (v: boolean | null) => (v === null ? "checking" : v ? "online" : "of
 
 export default function Sidebar(p: Props) {
   const [theme, setTheme] = useState<Theme>("system");
-  useEffect(() => setTheme(getTheme()), []);
-  const pick = (t: Theme) => { setTheme(t); applyTheme(t); };
+  useEffect(() => {
+    setTheme(getProfileTheme(p.activeProfileId));
+  }, [p.activeProfileId]);
+  const pick = (t: Theme) => {
+    setTheme(t);
+    applyAppearance(p.activeProfileId, t);
+  };
 
   const recent = [...p.chats].filter((c) => c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 15);
 
@@ -65,6 +79,11 @@ export default function Sidebar(p: Props) {
           </button>
           <button className="icon-btn close-btn" onClick={p.onClose} aria-label="Close menu"><Icon name="x" size={16} /></button>
         </div>
+
+        {p.profiles.length > 0 && (
+          <ProfileSwitcher variant="side" profiles={p.profiles} activeId={p.activeProfileId}
+            onSelect={(id) => { p.onSelectProfile(id); p.onClose(); }} onCreate={() => { p.onCreateProfile(); p.onClose(); }} onManage={() => { p.onManageProfiles(); p.onClose(); }} />
+        )}
 
         <button className="new-chat" onClick={() => { p.onNewChat(); p.onView("chat"); p.onClose(); }} title="New chat">
           <Icon name="plus" size={16} /><span className="lbl">New chat</span>
@@ -115,6 +134,15 @@ export default function Sidebar(p: Props) {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className={`icon-btn settings-foot-btn ${p.view === "settings" ? "active" : ""}`}
+              onClick={() => { p.onView("settings"); p.onClose(); }}
+              title="Settings"
+              aria-label="Settings"
+            >
+              <Icon name="gear" size={16} />
+            </button>
             {p.signedIn && <button className="icon-btn" onClick={p.onSignOut} title="Sign out (forget API token)"><Icon name="logout" size={16} /></button>}
           </div>
         </div>

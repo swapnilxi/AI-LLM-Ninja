@@ -5,53 +5,267 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI-LLM Ninja</title>
 <style>
+  /* ── Design tokens ─────────────────────────────────────────────── */
   :root {
-    --bg: #f6f7fb; --card: #fff; --text: #1a1d29; --muted: #5d6478; --border: #e3e6ef;
-    --accent: #5b5bf0;
-    --live: #12a150; --live-bg: #e3f6ec;
-    --wip: #b7791f; --wip-bg: #fdf1d8;
-    --soon: #5d6478; --soon-bg: #eceef4;
+    --bg:      #f0f2f8;
+    --text:    #1a1d29;
+    --muted:   #5d6478;
+    --border:  #d8dcea;
+    --accent:  #5b5bf0;
+
+    --live:    #12a150; --live-bg:  #e3f6ec;
+    --wip:     #b7791f; --wip-bg:   #fdf1d8;
+    --soon:    #5d6478; --soon-bg:  #eceef4;
+
+    /* Glass tokens */
+    --glass-bg:       rgba(255,255,255,0.65);
+    --glass-border:   rgba(255,255,255,0.75);
+    --glass-shadow:   rgba(0,0,0,0.08);
+    --glass-glow-a:   rgba(100,120,220,0.08);
+    --glass-glow-b:   rgba(80,180,220,0.06);
+    --glass-shimmer:  rgba(255,255,255,0.50);
+    --glass-inner:    rgba(255,255,255,0.80);
+
+    --transition-card: 280ms cubic-bezier(.25,.8,.25,1);
   }
+
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1117; --card: #181b25; --text: #eceef6; --muted: #9aa1b5; --border: #272b3a;
-      --accent: #8b8bff;
-      --live: #4ade80; --live-bg: #12301f;
-      --wip: #f6c453; --wip-bg: #372a0d;
-      --soon: #9aa1b5; --soon-bg: #232634;
+      --bg:      #0b0c10;
+      --text:    #eceef6;
+      --muted:   #9aa1b5;
+      --border:  #181a24;
+      --accent:  #2997ff;
+
+      --live:    #30d158; --live-bg:  #0e2618;
+      --wip:     #ffd60a; --wip-bg:   #2d2007;
+      --soon:    #9aa1b5; --soon-bg:  #181c2a;
+
+      /* visionOS dark glass */
+      --glass-bg:       rgba(24, 26, 34, 0.68);
+      --glass-border:   rgba(255, 255, 255, 0.08);
+      --glass-shadow:   rgba(0, 0, 0, 0.42);
+      --glass-glow-a:   rgba(45, 65, 115, 0.08);
+      --glass-glow-b:   rgba(30, 40, 70, 0.06);
+      --glass-shimmer:  rgba(255, 255, 255, 0.20);
+      --glass-inner:    rgba(255, 255, 255, 0.12);
     }
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.5; }
+
+  /* ── Reset & base ──────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    /* Deep subtle architectural ambient backdrop */
+    background-image:
+      radial-gradient(ellipse 70% 50% at 20% 10%,  rgba(35,50,90,0.12)  0%, transparent 65%),
+      radial-gradient(ellipse 55% 40% at 80% 15%,  rgba(30,35,60,0.10)  0%, transparent 60%),
+      radial-gradient(ellipse 60% 45% at 50% 90%,  rgba(20,28,45,0.12)  0%, transparent 65%);
+  }
+
+  /* ── Header ────────────────────────────────────────────────────── */
   header { text-align: center; padding: 56px 16px 24px; }
   header h1 { margin: 0 0 8px; font-size: clamp(1.8rem, 5vw, 2.6rem); }
-  header p { margin: 0 auto; max-width: 620px; color: var(--muted); }
-  .filters { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 16px 24px; }
-  .filters button { border: 1px solid var(--border); background: var(--card); color: var(--text);
-    padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: .9rem; }
+  header p  { margin: 0 auto; max-width: 620px; color: var(--muted); }
+
+  /* ── Filter pills ──────────────────────────────────────────────── */
+  .filters {
+    display: flex; gap: 8px; justify-content: center;
+    flex-wrap: wrap; padding: 8px 16px 24px;
+  }
+  .filters button {
+    border: 1px solid var(--border);
+    background: var(--glass-bg);
+    color: var(--text);
+    padding: 6px 14px; border-radius: 999px;
+    cursor: pointer; font-size: .9rem;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    transition: background .2s, border-color .2s;
+  }
   .filters button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  main { max-width: 1100px; margin: 0 auto; padding: 0 16px 64px;
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px;
-    display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: inherit;
-    transition: transform .15s, box-shadow .15s, border-color .15s; }
-  a.card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,.12); }
-  .card.disabled { opacity: .75; cursor: not-allowed; }
-  .top { display: flex; justify-content: space-between; align-items: center; }
+
+  /* ── Grid ──────────────────────────────────────────────────────── */
+  main {
+    max-width: 1100px; margin: 0 auto; padding: 0 16px 64px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px;
+  }
+
+  /* ── Card wrapper: holds the ambient glow orbs ─────────────────── */
+  .card-wrap {
+    position: relative;
+    border-radius: 18px;
+  }
+
+  /* Ambient glow orbs – quiet, subtle physical warmth */
+  .card-wrap::before,
+  .card-wrap::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(44px);
+    pointer-events: none;
+    transition: opacity var(--transition-card), transform var(--transition-card);
+    z-index: 0;
+  }
+  .card-wrap::before {
+    width: 120%; height: 120%; top: -10%; left: -10%;
+    background: radial-gradient(ellipse at 40% 40%, var(--glass-glow-a), transparent 70%);
+    opacity: 0.5;
+  }
+  .card-wrap::after {
+    width: 110%; height: 110%; top: -5%; left: -5%;
+    background: radial-gradient(ellipse at 70% 65%, var(--glass-glow-b), transparent 65%);
+    opacity: 0.4;
+  }
+  .card-wrap:hover::before { opacity: 0.7; transform: scale(1.03); }
+  .card-wrap:hover::after  { opacity: 0.6; transform: scale(1.02); }
+
+  /* ── Glass card ─────────────────────────────────────────────────── */
+  .card {
+    position: relative; z-index: 1;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px; padding: 20px;
+    display: flex; flex-direction: column; gap: 10px;
+    text-decoration: none; color: inherit;
+    overflow: hidden;
+
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+
+    box-shadow:
+      inset 0 1px 0 var(--glass-inner),
+      0 12px 36px var(--glass-shadow),
+      0 2px 6px rgba(0,0,0,0.20);
+
+    /* Custom props for cursor spotlight */
+    --spot-x: 50%;
+    --spot-y: 50%;
+    --spot-opacity: 0;
+
+    transition:
+      transform      var(--transition-card),
+      box-shadow     var(--transition-card),
+      border-color   var(--transition-card),
+      background     var(--transition-card);
+  }
+
+  /* Cursor spotlight overlay – delicate glass specular */
+  .card::before {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      200px circle at var(--spot-x) var(--spot-y),
+      rgba(255,255,255,0.06) 0%,
+      transparent 70%
+    );
+    opacity: var(--spot-opacity);
+    transition: opacity 300ms ease;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* Shimmer rim (delicate, refined edge reflection) */
+  .card::after {
+    content: "";
+    position: absolute; inset: -1px;
+    border-radius: inherit;
+    padding: 1.2px;
+    background: linear-gradient(
+      115deg,
+      transparent 0%,
+      transparent 28%,
+      rgba(255, 255, 255, 0.08) 38%,
+      rgba(255, 255, 255, 0.45) 48%,
+      rgba(140, 195, 255, 0.55) 52%,
+      rgba(255, 255, 255, 0.45) 56%,
+      rgba(255, 255, 255, 0.08) 66%,
+      transparent 76%,
+      transparent 100%
+    );
+    background-size: 280% 280%;
+    background-position: 0% 0%;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask:         linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0.36;
+    transition: opacity 0.32s ease;
+    animation: shimmer-sweep 5.5s ease-in-out infinite;
+    z-index: 3;
+  }
+
+  @keyframes shimmer-sweep {
+    0%   { background-position: 0% 0%; }
+    50%  { background-position: 100% 100%; }
+    100% { background-position: 0% 0%; }
+  }
+
+  /* Fallback when backdrop-filter unsupported */
+  @supports not (backdrop-filter: blur(1px)) {
+    .card { background: rgba(20,22,28,0.96); border-color: rgba(255,255,255,0.12); }
+    @media (prefers-color-scheme: light) {
+      .card { background: rgba(255,255,255,0.95); border-color: rgba(0,0,0,0.10); }
+    }
+  }
+
+  /* Hover state: lift, shimmering rim brightens, soft atmospheric glow blooms */
+  .card-wrap:hover > a.card {
+    transform: translateY(-3px);
+    border-color: rgba(255,255,255,0.18);
+    background: rgba(30, 33, 44, 0.82);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.22),
+      0 16px 42px -8px rgba(0, 0, 0, 0.55),
+      0 0 30px 2px rgba(41, 151, 255, 0.16),
+      0 0 16px -2px rgba(140, 100, 255, 0.12);
+  }
+  .card-wrap:hover > a.card::after {
+    opacity: 0.88;
+    animation-duration: 3.5s;
+  }
+  .card-wrap:hover > a.card { --spot-opacity: 1; }
+  .card.disabled { opacity: .78; cursor: not-allowed; }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    .card, .card-wrap::before, .card-wrap::after { transition: none; }
+    .card::after { animation: none; }
+  }
+
+  /* ── Card content (keep above decorative layers) ─────────────────── */
+  .top  { display: flex; justify-content: space-between; align-items: center; position: relative; z-index: 4; }
   .icon { font-size: 1.8rem; }
   .badge { font-size: .72rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
-  .badge.live { color: var(--live); background: var(--live-bg); }
-  .badge.progress { color: var(--wip); background: var(--wip-bg); }
-  .badge.soon { color: var(--soon); background: var(--soon-bg); }
-  .card h2 { margin: 0; font-size: 1.15rem; }
-  .card p { margin: 0; color: var(--muted); font-size: .92rem; flex: 1; }
-  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-  .tags span { font-size: .72rem; color: var(--muted); border: 1px solid var(--border); padding: 1px 8px; border-radius: 6px; }
-  .cta { font-size: .85rem; font-weight: 600; color: var(--accent); }
+  .badge.live     { color: var(--live);  background: var(--live-bg); }
+  .badge.progress { color: var(--wip);   background: var(--wip-bg);  }
+  .badge.soon     { color: var(--soon);  background: var(--soon-bg); }
+  .card h2 { margin: 0; font-size: 1.15rem; position: relative; z-index: 4; }
+  .card p  { margin: 0; color: var(--muted); font-size: .92rem; flex: 1; position: relative; z-index: 4; }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; position: relative; z-index: 4; }
+  .tags span {
+    font-size: .72rem; color: var(--muted);
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.04);
+    padding: 1px 8px; border-radius: 6px;
+  }
+  .cta { font-size: .85rem; font-weight: 600; color: var(--accent); position: relative; z-index: 4; }
   .disabled .cta { color: var(--muted); }
+
+  /* Keyboard focus */
+  a.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+  /* Footer */
   footer { text-align: center; color: var(--muted); font-size: .8rem; padding-bottom: 32px; }
-  code { background: var(--soon-bg); padding: 1px 6px; border-radius: 4px; }
+  code   { background: var(--soon-bg); padding: 1px 6px; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -100,37 +314,70 @@ const APPS = [
 ];
 
 const LABEL = { live: "Live", progress: "In progress", soon: "Coming soon" };
-const CTA = { live: "Open app →", progress: "In progress", soon: "Coming soon" };
-const grid = document.getElementById("grid");
+const CTA   = { live: "Open app →", progress: "In progress", soon: "Coming soon" };
+const grid    = document.getElementById("grid");
 const filters = document.getElementById("filters");
-let current = "all";
+let current   = "all";
 
-function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function esc(s) {
+  return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
 
+/* ── Render ─────────────────────────────────────────────────────── */
 function render() {
   grid.innerHTML = APPS.filter(a => current === "all" || a.status === current).map(a => {
     const clickable = a.status === "live" && a.url;
-    const tag = clickable ? "a" : "div";
+    const tag  = clickable ? "a" : "div";
     const attrs = clickable
       ? `href="${a.url}" target="_blank" rel="noopener" title="${esc(a.run || "")}"`
       : `aria-disabled="true"`;
-    return `<${tag} class="card ${clickable ? "" : "disabled"}" ${attrs}>
-      <div class="top"><span class="icon">${a.icon}</span><span class="badge ${a.status}">${LABEL[a.status]}</span></div>
-      <h2>${esc(a.title)}</h2>
-      <p>${esc(a.desc)}</p>
-      <div class="tags">${a.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div>
-      <span class="cta">${CTA[a.status]}</span>
-    </${tag}>`;
+    return `<div class="card-wrap">
+      <${tag} class="card ${clickable ? "" : "disabled"}" ${attrs}>
+        <div class="top"><span class="icon">${a.icon}</span><span class="badge ${a.status}">${LABEL[a.status]}</span></div>
+        <h2>${esc(a.title)}</h2>
+        <p>${esc(a.desc)}</p>
+        <div class="tags">${a.tags.map(t => `<span>${esc(t)}</span>`).join("")}</div>
+        <span class="cta">${CTA[a.status]}</span>
+      </${tag}>
+    </div>`;
   }).join("");
+
+  attachSpotlights();
 }
 
+/* ── Cursor-following spotlight ─────────────────────────────────── */
+function attachSpotlights() {
+  document.querySelectorAll(".card").forEach(card => {
+    card.addEventListener("mousemove", function(e) {
+      const r = this.getBoundingClientRect();
+      this.style.setProperty("--spot-x", ((e.clientX - r.left) / r.width  * 100).toFixed(1) + "%");
+      this.style.setProperty("--spot-y", ((e.clientY - r.top)  / r.height * 100).toFixed(1) + "%");
+      this.style.setProperty("--spot-opacity", "1");
+    });
+    card.addEventListener("mouseleave", function() {
+      this.style.setProperty("--spot-opacity", "0");
+    });
+  });
+}
+
+/* ── Filters ────────────────────────────────────────────────────── */
 [["all", "All"], ["live", "Live"], ["progress", "In progress"], ["soon", "Coming soon"]].forEach(([k, l]) => {
   const b = document.createElement("button");
   b.textContent = l;
   b.className = k === current ? "active" : "";
-  b.onclick = () => { current = k; [...filters.children].forEach(c => c.classList.toggle("active", c === b)); render(); };
+  b.setAttribute("aria-pressed", k === current ? "true" : "false");
+  b.onclick = () => {
+    current = k;
+    [...filters.children].forEach(c => {
+      const active = c === b;
+      c.classList.toggle("active", active);
+      c.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    render();
+  };
   filters.appendChild(b);
 });
+
 render();
 </script>
 </body>

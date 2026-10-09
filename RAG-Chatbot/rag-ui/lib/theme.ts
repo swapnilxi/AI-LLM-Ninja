@@ -1,19 +1,75 @@
 export type Theme = "light" | "dark" | "system";
-const KEY = "rag.theme";
+export type AccentColor = "blue" | "purple" | "emerald" | "amber" | "rose" | "graphite";
 
-export function getTheme(): Theme {
+export interface AccentOption {
+  id: AccentColor;
+  label: string;
+  lightHex: string;
+  darkHex: string;
+}
+
+export const ACCENTS: AccentOption[] = [
+  { id: "blue", label: "Apple Blue", lightHex: "#0071e3", darkHex: "#2997ff" },
+  { id: "purple", label: "Vision Violet", lightHex: "#8e44ad", darkHex: "#bf5af2" },
+  { id: "emerald", label: "Emerald Mint", lightHex: "#059669", darkHex: "#30d158" },
+  { id: "amber", label: "Amber Sunset", lightHex: "#d97706", darkHex: "#ff9f0a" },
+  { id: "rose", label: "Rose Coral", lightHex: "#e11d48", darkHex: "#ff375f" },
+  { id: "graphite", label: "Titanium Slate", lightHex: "#475569", darkHex: "#94a3b8" },
+];
+
+const THEME_KEY = "rag.theme";
+const ACCENT_KEY = "rag.accent";
+
+/** Get theme for a specific profile, falling back to global theme or system */
+export function getProfileTheme(profileId?: string): Theme {
   try {
-    const t = localStorage.getItem(KEY);
+    if (profileId) {
+      const p = localStorage.getItem(`${THEME_KEY}.${profileId}`);
+      if (p === "light" || p === "dark" || p === "system") return p;
+    }
+    const t = localStorage.getItem(THEME_KEY);
     if (t === "light" || t === "dark" || t === "system") return t;
   } catch {}
   return "system";
 }
 
-/** Sets <html data-theme="light|dark"> and remembers the choice. (layout.tsx runs the same logic before paint.) */
-export function applyTheme(t: Theme): void {
-  const dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
+/** Get accent color for a specific profile, falling back to global accent or blue */
+export function getProfileAccent(profileId?: string): AccentColor {
   try {
-    localStorage.setItem(KEY, t);
+    if (profileId) {
+      const p = localStorage.getItem(`${ACCENT_KEY}.${profileId}`);
+      if (ACCENTS.some((a) => a.id === p)) return p as AccentColor;
+    }
+    const a = localStorage.getItem(ACCENT_KEY);
+    if (ACCENTS.some((ac) => ac.id === a)) return a as AccentColor;
+  } catch {}
+  return "blue";
+}
+
+/** Apply theme and accent color to the document and persist */
+export function applyAppearance(profileId?: string, theme?: Theme, accent?: AccentColor): void {
+  const currentTheme = theme ?? getProfileTheme(profileId);
+  const currentAccent = accent ?? getProfileAccent(profileId);
+
+  const dark = currentTheme === "dark" || (currentTheme === "system" && typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    document.documentElement.dataset.accent = currentAccent;
+  }
+
+  try {
+    if (theme) {
+      if (profileId) localStorage.setItem(`${THEME_KEY}.${profileId}`, theme);
+      localStorage.setItem(THEME_KEY, theme);
+    }
+    if (accent) {
+      if (profileId) localStorage.setItem(`${ACCENT_KEY}.${profileId}`, accent);
+      localStorage.setItem(ACCENT_KEY, accent);
+    }
   } catch {}
 }
+
+// Backward-compatible helpers
+export const getTheme = (profileId?: string) => getProfileTheme(profileId);
+export const applyTheme = (t: Theme, profileId?: string) => applyAppearance(profileId, t);
+

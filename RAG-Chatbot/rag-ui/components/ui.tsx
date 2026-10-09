@@ -3,7 +3,28 @@
 import { createContext, ReactNode, useCallback, useContext, useState } from "react";
 import { Icon } from "./Icons";
 
-export const Spinner = ({ size = 16 }: { size?: number }) => <span className="spinner" style={{ width: size, height: size }} aria-label="Loading" />;
+export const Spinner = ({ size = 16, className = "" }: { size?: number; className?: string }) => {
+  const s = size;
+  return (
+    <span
+      className={`apple-spinner spinner ${className}`}
+      style={{ width: s, height: s }}
+      role="status"
+      aria-label="Loading"
+    >
+      <svg viewBox="0 0 20 20" width={s} height={s} fill="currentColor">
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="1.0" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.875" transform="rotate(45 10 10)" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.75" transform="rotate(90 10 10)" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.625" transform="rotate(135 10 10)" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.5" transform="rotate(180 10 10)" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.375" transform="rotate(225 10 10)" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.25" transform="rotate(270 10 10)" />
+        <rect x="9" y="1.5" width="2" height="4.5" rx="1" opacity="0.125" transform="rotate(315 10 10)" />
+      </svg>
+    </span>
+  );
+};
 
 export const Badge = ({ tone = "muted", children }: { tone?: "ok" | "warn" | "bad" | "info" | "muted"; children: ReactNode }) => (
   <span className={`badge ${tone}`}>{children}</span>

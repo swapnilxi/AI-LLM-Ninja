@@ -1,0 +1,6 @@
+[
+  { "question": "What are Acme's support hours?", "answer": "Acme support is available Monday to Friday, 8:00 to 18:00 CET. Urgent production issues are answered 24/7 through the on-call line." },
+  { "question": "How do I request a refund from Acme?", "answer": "Email refunds@acme.example with your order number within 30 days of purchase. Refunds are paid to the original payment method within 5 to 7 business days." },
+  { "question": "Does Acme offer an API?", "answer": "Yes. The Acme REST API is available on the Business plan and above. Documentation lives at docs.acme.example and requests are limited to 600 per minute." },
+  { "question": "Which plans does Acme offer?", "answer": "Starter (49 EUR/month), Business (199 EUR/month) and Enterprise (custom pricing). All plans include a 14-day free trial." }
+]

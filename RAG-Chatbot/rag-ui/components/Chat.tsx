@@ -199,10 +199,14 @@ export default function Chat({ chat, onChange, onNavigate, config, storeChunks, 
                                   ref={(el) => { if (el && focus?.msg === i && focus.n === s.id) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }}>
                                   <div className="source-head">
                                     <span className="cite static">{s.id}</span>
-                                    <Icon name={fileIcon(s.source)} size={14} />
-                                    <button className="link source-name" title="Open the source document"
-                                      onClick={() => openDocument({ profileId: s.profile_id, documentId: s.document_id, name: s.source }, s.page).catch((e) => toast("bad", e.message))}>{citationLabel(s.source, s.page)}</button>
-                                    <span className="badge muted">{kindOf(s.source)?.label ?? "file"}</span>
+                                    {s.kind === "faq" ? <Icon name="help" size={14} /> : <Icon name={fileIcon(s.source)} size={14} />}
+                                    {s.kind === "faq" ? (
+                                      <button className="link source-name" title="Open the FAQ manager" onClick={() => onNavigate("faqs")}>{s.source.replace(/^FAQ: /, "")}</button>
+                                    ) : (
+                                      <button className="link source-name" title="Open the source document"
+                                        onClick={() => openDocument({ profileId: s.profile_id, documentId: s.document_id, name: s.source }, s.page).catch((e) => toast("bad", e.message))}>{citationLabel(s.source, s.page)}</button>
+                                    )}
+                                    <span className={`badge ${s.kind === "faq" ? "info" : "muted"}`}>{s.kind === "faq" ? "FAQ" : kindOf(s.source)?.label ?? "file"}</span>
                                     <span className="score" title={`${(s.score * 100).toFixed(1)}% similarity`}><span style={{ width: `${Math.max(4, Math.min(100, s.score * 100))}%` }} /></span>
                                     <span className="muted small">{(s.score * 100).toFixed(0)}%</span>
                                   </div>

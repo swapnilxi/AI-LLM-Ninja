@@ -36,7 +36,7 @@ export default function Profiles(p: Props) {
 
   return (
     <div className="page">
-      <PageHeader title="Profiles" subtitle={<>Each folder inside <code>data/</code> is one profile. Chat only searches the active profile{" "}plus the shared <b>Common</b> knowledge.</>}
+      <PageHeader title="Profiles" subtitle={<>Each folder inside <code>rag-data/</code> is one profile. Chat only searches the active profile{" "}plus the shared <b>Common</b> knowledge.</>}
         actions={p.canEdit && <button onClick={() => setEditing("new")}><Icon name="plus" size={15} />Create profile</button>} />
 
       <div className="profile-grid">

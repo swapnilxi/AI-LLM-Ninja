@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, Catalog, getToken, Settings, setToken } from "@/lib/api";
+import { api, Catalog, getToken, Profile, Settings, setToken } from "@/lib/api";
+import { ACCENTS, AccentColor, applyAppearance, getProfileAccent, getProfileTheme, Theme } from "@/lib/theme";
 import { Icon, IconName } from "./Icons";
 import { Card, PageHeader, Spinner, useToast } from "./ui";
 
 type TestResult = { ok: boolean; detail: string; ms: number };
-type Section = "llm" | "embedding" | "store" | "rag" | "access";
+type Section = "llm" | "embedding" | "store" | "rag" | "appearance" | "access";
 
 const LABELS: Record<string, string> = {
   ollama_base_url: "Ollama URL", gemini_api_key: "Gemini API key", deepseek_api_key: "DeepSeek API key",
@@ -25,7 +26,8 @@ const SECTIONS: { id: Section; label: string; icon: IconName; blurb: string }[] 
   { id: "llm", label: "LLM", icon: "cpu", blurb: "The model that writes answers. Local (Ollama) or hosted (Gemini, OpenAI, Groq, DeepSeek, OpenRouter)." },
   { id: "embedding", label: "Embeddings", icon: "zap", blurb: "Turns text into vectors for search. Changing it requires rebuilding the index." },
   { id: "store", label: "Vector DB", icon: "database", blurb: "Where vectors live: local Chroma, local Postgres, or Neon." },
-  { id: "rag", label: "RAG", icon: "sliders", blurb: "How documents are chunked, retrieved and turned into prompts." },
+  { id: "rag", label: "RAG", icon: "gear", blurb: "How documents are chunked, retrieved and turned into prompts." },
+  { id: "appearance", label: "Appearance", icon: "sparkles", blurb: "Customize color accent and dark/light themes for your profiles." },
   { id: "access", label: "Access", icon: "key", blurb: "Browser-side settings and exporting your configuration." },
 ];
 const sectionOf = (k: string): Section =>
@@ -33,7 +35,17 @@ const sectionOf = (k: string): Section =>
   : k.startsWith("embedding_") ? "embedding"
   : ["vector_store", "chroma_path", "database_url", "vector_table"].includes(k) ? "store" : "rag";
 
-export default function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
+export default function SettingsPanel({
+  onSaved,
+  profile,
+  profiles = [],
+  onProfileChange,
+}: {
+  onSaved?: () => void;
+  profile?: Profile | null;
+  profiles?: Profile[];
+  onProfileChange?: (id: string) => void;
+}) {
   const toast = useToast();
   const [cat, setCat] = useState<Catalog | null>(null);
   const [saved, setSaved] = useState<Settings | null>(null);
@@ -45,6 +57,33 @@ export default function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
   const [offline, setOffline] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("llm");
   const [token, setTok] = useState(getToken());
+
+  // Appearance state per profile
+  const [targetProfileId, setTargetProfileId] = useState(profile?.id ?? "");
+  const [currentTheme, setCurrentTheme] = useState<Theme>(() => getProfileTheme(profile?.id));
+  const [currentAccent, setCurrentAccent] = useState<AccentColor>(() => getProfileAccent(profile?.id));
+
+  useEffect(() => {
+    if (profile?.id) {
+      setTargetProfileId(profile.id);
+      setCurrentTheme(getProfileTheme(profile.id));
+      setCurrentAccent(getProfileAccent(profile.id));
+    }
+  }, [profile?.id]);
+
+  function changeTheme(t: Theme) {
+    setCurrentTheme(t);
+    applyAppearance(targetProfileId || undefined, t, currentAccent);
+    const pName = profiles.find((p) => p.id === targetProfileId)?.name ?? "Workspace";
+    toast("ok", `Theme set to ${t} for ${pName}`);
+  }
+
+  function changeAccent(a: AccentColor) {
+    setCurrentAccent(a);
+    applyAppearance(targetProfileId || undefined, currentTheme, a);
+    const pName = profiles.find((p) => p.id === targetProfileId)?.name ?? "Workspace";
+    toast("ok", `Color accent set to ${ACCENTS.find((ac) => ac.id === a)?.label ?? a} for ${pName}`);
+  }
 
   async function load() {
     setOffline(null);
@@ -251,6 +290,104 @@ export default function SettingsPanel({ onSaved }: { onSaved?: () => void }) {
             {Field({ name: "rag_data_dir", label: "Documents folder" })}
             {Field({ name: "system_prompt", label: "System prompt", type: "textarea" })}
           </>
+        )}
+
+        {section === "appearance" && (
+          <div className="stack" style={{ gap: 24 }}>
+            {profiles.length > 0 && (
+              <label className="field">
+                <span>Customize for Workspace / Profile</span>
+                <select
+                  value={targetProfileId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setTargetProfileId(id);
+                    setCurrentTheme(getProfileTheme(id));
+                    setCurrentAccent(getProfileAccent(id));
+                    if (onProfileChange && id) onProfileChange(id);
+                  }}
+                  className="pill-select"
+                >
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.id === profile?.id ? "(Current Profile)" : ""}
+                    </option>
+                  ))}
+                  <option value="">All profiles (Global fallback)</option>
+                </select>
+                <small className="muted">
+                  Each profile can have its own theme mode and accent color, so you can color-code your workspaces.
+                </small>
+              </label>
+            )}
+
+            <div className="field">
+              <span>Theme Mode</span>
+              <div className="theme-options-grid">
+                {[
+                  { id: "light" as Theme, label: "Light", icon: "sun" as IconName, desc: "Crisp, luminous frosted glass" },
+                  { id: "dark" as Theme, label: "Dark", icon: "moon" as IconName, desc: "Deep space obsidian & soft glows" },
+                  { id: "system" as Theme, label: "System", icon: "monitor" as IconName, desc: "Follows macOS / device preference" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`theme-card-btn ${currentTheme === m.id ? "active" : ""}`}
+                    onClick={() => changeTheme(m.id)}
+                  >
+                    <div className="theme-card-top">
+                      <span className="theme-card-icon"><Icon name={m.icon} size={18} /></span>
+                      <span className="theme-card-title">{m.label}</span>
+                      {currentTheme === m.id && <span className="theme-card-check"><Icon name="check" size={14} /></span>}
+                    </div>
+                    <span className="theme-card-desc muted small">{m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="field">
+              <span>Color Accent & Glow</span>
+              <div className="accent-grid">
+                {ACCENTS.map((a) => {
+                  const isSel = currentAccent === a.id;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      className={`accent-btn ${isSel ? "active" : ""}`}
+                      onClick={() => changeAccent(a.id)}
+                      title={a.label}
+                    >
+                      <span
+                        className="accent-swatch"
+                        style={{ backgroundColor: currentTheme === "dark" ? a.darkHex : a.lightHex }}
+                      >
+                        {isSel && <Icon name="check" size={13} color="#fff" />}
+                      </span>
+                      <span className="accent-name">{a.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="card preview-card">
+              <div className="preview-card-head">
+                <span className="small muted" style={{ textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>Live Appearance Preview</span>
+                <span className="badge ok">✓ Active style</span>
+              </div>
+              <p style={{ margin: "10px 0 14px", fontSize: 14 }}>
+                This is how buttons, tags, glowing borders, and interactive panels look for <strong>{profiles.find((p) => p.id === targetProfileId)?.name ?? "your workspace"}</strong>.
+              </p>
+              <div className="row wrap" style={{ gap: 10 }}>
+                <button type="button">Primary button</button>
+                <button type="button" className="secondary">Secondary button</button>
+                <span className="chip on"><Icon name="sparkles" size={13} /> Active chip</span>
+                <span className="cite">1</span>
+              </div>
+            </div>
+          </div>
         )}
 
         {section === "access" && (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiError, DOC_PENDING, DocRow, DocStatus, Profile, profileUrl, SyncStatus, upload } from "@/lib/api";
+import { api, ApiError, Category, DOC_PENDING, DocRow, DocStatus, Profile, profileUrl, SyncStatus, upload } from "@/lib/api";
 import { acceptAttr, DocInfo, DocRef, downloadDocument, fetchDocInfo, formatSize, kindOf, openDocument, validateFiles } from "@/utils/files";
 import { Icon, fileIcon } from "./Icons";
 import { Badge, Card, PageHeader, Spinner, useToast } from "./ui";
@@ -11,7 +11,7 @@ const TONE: Record<DocStatus, "ok" | "warn" | "bad" | "info" | "muted"> = {
 };
 const STATES: (DocStatus | "all")[] = ["all", "INDEXED", "PENDING", "STALE", "FAILED"];
 type Sort = "name" | "size" | "modified" | "status";
-type Listing = { documents: DocRow[]; folders: string[]; supported_extensions: string[] };
+type Listing = { documents: DocRow[]; folders: string[]; supported_extensions: string[]; categories: Category[] };
 
 const parentOf = (p: string) => p.split("/").slice(0, -1).join("/");
 const leaf = (p: string) => p.split("/").pop() ?? p;
@@ -21,7 +21,7 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
 }) {
   const toast = useToast();
   const pid = profile.id;
-  const [data, setData] = useState<Listing>({ documents: [], folders: [], supported_extensions: [] });
+  const [data, setData] = useState<Listing>({ documents: [], folders: [], supported_extensions: [], categories: [] });
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -29,9 +29,11 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
   const [cwd, setCwd] = useState(""); // current folder ("" = profile root)
   const [q, setQ] = useState("");
   const [state, setState] = useState<DocStatus | "all">("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [sort, setSort] = useState<Sort>("name");
   const [selected, setSelected] = useState<DocRow | null>(null);
   const [info, setInfo] = useState<DocInfo | "loading" | null>(null);
+  const [managingCategories, setManagingCategories] = useState(false);
   const input = useRef<HTMLInputElement>(null);
 
   const running = sync?.state === "running";
@@ -49,7 +51,7 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
   }, [pid, toast]);
 
   // switching profile: start clean
-  useEffect(() => { setLoading(true); setCwd(""); setSelected(null); setQ(""); setState("all"); setNotes([]); refresh(); }, [pid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setLoading(true); setCwd(""); setSelected(null); setQ(""); setState("all"); setCategoryFilter("all"); setNotes([]); refresh(); }, [pid]); // eslint-disable-line react-hooks/exhaustive-deps
   // the shell polls sync status; re-read the listing while a job runs and once when it finishes
   useEffect(() => {
     if (!running) { refresh(); return; }
@@ -65,6 +67,14 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
 
   const changed = async () => { await refresh(); onChanged?.(); };
   const fail = (e: unknown) => toast("bad", e instanceof ApiError ? e.message : (e as Error).message);
+  const catById = useMemo(() => Object.fromEntries(data.categories.map((c) => [c.id, c])), [data.categories]);
+  const current = selected ? data.documents.find((d) => d.id === selected.id) ?? selected : null;
+
+  async function toggleCategory(doc: DocRow, categoryId: string) {
+    const next = doc.category_ids.includes(categoryId) ? doc.category_ids.filter((id) => id !== categoryId) : [...doc.category_ids, categoryId];
+    setData((d) => ({ ...d, documents: d.documents.map((x) => (x.id === doc.id ? { ...x, category_ids: next } : x)) })); // optimistic
+    try { await api(profileUrl(pid, `/documents/${doc.id}/categories`), "PATCH", { category_ids: next }); } catch (e) { fail(e); refresh(); }
+  }
 
   async function doUpload(list: File[]) {
     setUploading(true);
@@ -118,16 +128,18 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
   }
 
   const counts = useMemo(() => Object.fromEntries(STATES.map((s) => [s, s === "all" ? data.documents.length : data.documents.filter((f) => f.status === s || (s === "PENDING" && f.status === "DISCOVERED")).length])), [data.documents]);
-  const flat = !!q.trim() || state !== "all";
+  const flat = !!q.trim() || state !== "all" || categoryFilter !== "all";
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = data.documents.filter((f) =>
-      (state === "all" || f.status === state || (state === "PENDING" && f.status === "DISCOVERED")) && (!needle || f.relative_path.toLowerCase().includes(needle)));
+      (state === "all" || f.status === state || (state === "PENDING" && f.status === "DISCOVERED")) &&
+      (categoryFilter === "all" || f.category_ids.includes(categoryFilter)) &&
+      (!needle || f.relative_path.toLowerCase().includes(needle)));
     if (!flat) list = list.filter((f) => f.folder === cwd);
     const key = { name: (f: DocRow) => f.filename.toLowerCase(), size: (f: DocRow) => -f.size, modified: (f: DocRow) => -(f.modified ?? 0), status: (f: DocRow) => f.status }[sort];
     return list.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
-  }, [data.documents, q, state, sort, cwd, flat]);
+  }, [data.documents, q, state, categoryFilter, sort, cwd, flat]);
 
   const subfolders = useMemo(() => (flat ? [] : data.folders.filter((f) => parentOf(f) === cwd)), [data.folders, cwd, flat]);
   const docsIn = (folder: string) => data.documents.filter((d) => d.relative_path.startsWith(folder + "/")).length;
@@ -183,8 +195,15 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
               <button key={s} className={`chip ${state === s ? "on" : ""}`} onClick={() => setState(s)}>{s === "all" ? "all" : s.toLowerCase()}<span className="chip-count">{counts[s]}</span></button>
             ))}
           </div>
+          {data.categories.length > 0 && (
+            <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Category">
+              <option value="all">All categories</option>
+              {data.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          )}
           <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by"><option value="name">Sort: name</option><option value="size">Sort: size</option><option value="modified">Sort: recent</option><option value="status">Sort: status</option></select>
           {canEdit && <button className="secondary sm" onClick={newFolder}><Icon name="plus" size={14} />New folder</button>}
+          {canEdit && <button className="secondary sm" onClick={() => setManagingCategories(true)}><Icon name="tag" size={14} />Categories</button>}
         </div>
 
         {!flat && (
@@ -212,7 +231,14 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
                 ))}
                 {rows.map((f) => (
                   <tr key={f.id} className={selected?.id === f.id ? "sel" : ""} onClick={() => setSelected(f)}>
-                    <td><span className="file-cell"><Icon name={fileIcon(f.filename)} size={16} /><span className="file-name" title={f.relative_path}>{f.filename}</span></span></td>
+                    <td>
+                      <span className="file-cell"><Icon name={fileIcon(f.filename)} size={16} /><span className="file-name" title={f.relative_path}>{f.filename}</span></span>
+                      {f.category_ids.length > 0 && (
+                        <div className="row wrap" style={{ marginTop: 4 }}>
+                          {f.category_ids.map((cid) => catById[cid] && <Badge key={cid} tone="info">{catById[cid].name}</Badge>)}
+                        </div>
+                      )}
+                    </td>
                     {flat && <td className="muted">{f.folder || "—"}</td>}
                     <td>{f.size ? formatSize(f.size) : "—"}</td>
                     <td><Badge tone={TONE[f.status] ?? "muted"}>{f.status.toLowerCase()}</Badge>{f.error && <div className="error small" title={f.error}>{f.error.slice(0, 60)}</div>}</td>
@@ -230,18 +256,18 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
         )}
       </Card>
 
-      {selected && (
+      {current && (
         <>
           <div className="scrim light" onClick={() => setSelected(null)} />
           <aside className="drawer" aria-label="File details">
             <div className="drawer-head">
-              <div className="file-cell"><Icon name={fileIcon(selected.filename)} size={18} /><b title={selected.relative_path}>{selected.relative_path}</b></div>
+              <div className="file-cell"><Icon name={fileIcon(current.filename)} size={18} /><b title={current.relative_path}>{current.relative_path}</b></div>
               <button className="icon-btn" onClick={() => setSelected(null)}><Icon name="x" size={16} /></button>
             </div>
             {info === "loading" || !info ? <div className="empty-table"><Spinner /></div> : (
               <div className="drawer-body">
                 {info.error && <div className="note bad"><Icon name="alert" size={14} />{info.error}</div>}
-                {selected.error && <div className="note bad"><Icon name="alert" size={14} />{selected.error}</div>}
+                {current.error && <div className="note bad"><Icon name="alert" size={14} />{current.error}</div>}
                 {info.scanned && <div className="note warn"><Icon name="alert" size={14} />This PDF has no text layer (scanned images). Run OCR first, e.g. <code>ocrmypdf in.pdf out.pdf</code>.</div>}
                 {info.encrypted && <div className="note warn"><Icon name="alert" size={14} />Encrypted PDF — indexing needs it to be unlocked.</div>}
                 <dl className="meta">
@@ -254,21 +280,114 @@ export default function Documents({ profile, sync, canEdit, onChanged }: {
                   {info.created && <><dt>Created</dt><dd>{new Date(info.created).toLocaleDateString()}</dd></>}
                   {info.paragraphs !== undefined && <><dt>Paragraphs</dt><dd>{info.paragraphs}</dd></>}
                   {info.tables !== undefined && <><dt>Tables</dt><dd>{info.tables}</dd></>}
-                  <dt>Index</dt><dd><Badge tone={TONE[selected.status]}>{selected.status.toLowerCase()}</Badge> · {selected.chunks} chunks</dd>
-                  {selected.embedding_model && <><dt>Embedding</dt><dd className="small">{selected.embedding_model} · {selected.embedding_dimension}d · v{selected.embedding_version}</dd></>}
-                  {selected.chunking_version && <><dt>Chunking</dt><dd className="small">{selected.chunking_version}</dd></>}
+                  <dt>Index</dt><dd><Badge tone={TONE[current.status]}>{current.status.toLowerCase()}</Badge> · {current.chunks} chunks</dd>
+                  {current.embedding_model && <><dt>Embedding</dt><dd className="small">{current.embedding_model} · {current.embedding_dimension}d · v{current.embedding_version}</dd></>}
+                  {current.chunking_version && <><dt>Chunking</dt><dd className="small">{current.chunking_version}</dd></>}
                 </dl>
-                {DOC_PENDING.includes(selected.status) && <div className="muted small">Waiting to be indexed — press Sync now.</div>}
+                <div className="row wrap" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <b className="small">Categories</b>
+                  {canEdit && <button className="icon-btn" title="Manage categories" onClick={() => setManagingCategories(true)}><Icon name="tag" size={14} /></button>}
+                </div>
+                {data.categories.length === 0 ? (
+                  <div className="muted small" style={{ marginBottom: 14 }}>
+                    No categories yet for {profile.name}.{canEdit && <> <button className="link" onClick={() => setManagingCategories(true)}>Create one</button></>}
+                  </div>
+                ) : (
+                  <div className="chips" style={{ marginBottom: 14 }}>
+                    {data.categories.map((c) => (
+                      <button key={c.id} className={`chip ${current.category_ids.includes(c.id) ? "on" : ""}`} disabled={!canEdit}
+                        title={canEdit ? (current.category_ids.includes(c.id) ? `Remove ${c.name}` : `Add ${c.name}`) : c.name}
+                        onClick={() => toggleCategory(current, c.id)}>{c.name}</button>
+                    ))}
+                  </div>
+                )}
+                {DOC_PENDING.includes(current.status) && <div className="muted small">Waiting to be indexed — press Sync now.</div>}
                 <div className="row wrap">
-                  <button onClick={() => openDocument(ref(selected)).catch((e) => toast("bad", e.message))}><Icon name="external" size={15} />Open</button>
-                  <button className="secondary" onClick={() => downloadDocument(ref(selected)).catch((e) => toast("bad", e.message))}><Icon name="download" size={15} />Download</button>
-                  {canEdit && <button className="secondary danger" onClick={() => removeDoc(selected)}><Icon name="trash" size={15} />Delete</button>}
+                  <button onClick={() => openDocument(ref(current)).catch((e) => toast("bad", e.message))}><Icon name="external" size={15} />Open</button>
+                  <button className="secondary" onClick={() => downloadDocument(ref(current)).catch((e) => toast("bad", e.message))}><Icon name="download" size={15} />Download</button>
+                  {canEdit && <button className="secondary danger" onClick={() => removeDoc(current)}><Icon name="trash" size={15} />Delete</button>}
                 </div>
               </div>
             )}
           </aside>
         </>
       )}
+      {managingCategories && (
+        <CategoriesDialog profile={profile} categories={data.categories} onClose={() => setManagingCategories(false)} onChanged={refresh} />
+      )}
     </div>
+  );
+}
+
+function CategoriesDialog({ profile, categories, onClose, onChanged }: {
+  profile: Profile; categories: Category[]; onClose: () => void; onChanged: () => Promise<void>;
+}) {
+  const toast = useToast();
+  const pid = profile.id;
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const fail = (e: unknown) => toast("bad", e instanceof ApiError ? e.message : (e as Error).message);
+
+  async function add() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    try {
+      await api(profileUrl(pid, "/categories"), "POST", { name: trimmed });
+      setName("");
+      await onChanged();
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  }
+
+  async function rename(c: Category) {
+    const trimmed = editName.trim();
+    setEditingId(null);
+    if (!trimmed || trimmed === c.name) return;
+    try { await api(profileUrl(pid, `/categories/${c.id}`), "PATCH", { name: trimmed }); await onChanged(); } catch (e) { fail(e); }
+  }
+
+  async function remove(c: Category) {
+    if (!confirm(`Delete category "${c.name}"? Documents keep their other categories but lose this one.`)) return;
+    try { await api(profileUrl(pid, `/categories/${c.id}`), "DELETE"); await onChanged(); } catch (e) { fail(e); }
+  }
+
+  return (
+    <>
+      <div className="scrim light" onClick={onClose} />
+      <div className="modal card" role="dialog" aria-label="Manage categories">
+        <div className="card-head"><h3>Categories for {profile.name}</h3><button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" size={16} /></button></div>
+        <div className="form">
+          <div className="row wrap">
+            <input value={name} maxLength={60} placeholder="New category name" onKeyDown={(e) => e.key === "Enter" && add()} onChange={(e) => setName(e.target.value)} />
+            <button className="sm" onClick={add} disabled={busy || !name.trim()}>{busy ? <Spinner size={14} /> : <><Icon name="plus" size={14} />Add</>}</button>
+          </div>
+          {categories.length === 0 ? (
+            <div className="muted small">No categories yet. Add one above, then tag documents with it from the document details panel.</div>
+          ) : (
+            <div className="stack" style={{ gap: 6 }}>
+              {categories.map((c) => (
+                <div key={c.id} className="row wrap" style={{ justifyContent: "space-between" }}>
+                  {editingId === c.id ? (
+                    <input autoFocus value={editName} maxLength={60} onChange={(e) => setEditName(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && rename(c)} onBlur={() => rename(c)} />
+                  ) : (
+                    <span>{c.name}</span>
+                  )}
+                  <div className="row">
+                    <button className="icon-btn" title="Rename" onClick={() => { setEditingId(c.id); setEditName(c.name); }}><Icon name="edit" size={14} /></button>
+                    <button className="icon-btn danger" title="Delete" onClick={() => remove(c)}><Icon name="trash" size={14} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="row modal-actions">
+          <button className="secondary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </>
   );
 }

@@ -1,0 +1,4 @@
+[
+  { "question": "How do I reset my password?", "answer": "Open the login page, choose \"Forgot password\" and follow the emailed link. The link expires after 30 minutes." },
+  { "question": "Who do I contact for IT problems?", "answer": "Email helpdesk@example.com. Normal tickets are answered within one business day, urgent ones within four hours." }
+]
