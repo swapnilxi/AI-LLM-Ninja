@@ -43,6 +43,12 @@
   --accent-amber: #d97706;
   --accent-rose: #e11d48;
   --accent-graphite: #475569;
+  --accent-cyan: #0891b2;
+  --accent-indigo: #4338ca;
+  --accent-orange: #ea580c;
+  --accent-lime: #65a30d;
+  --accent-crimson: #be185d;
+  --accent-gold: #a16207;
 }
 :root[data-theme="dark"] {
   --accent-blue: #2997ff;
@@ -51,6 +57,12 @@
   --accent-amber: #ff9f0a;
   --accent-rose: #ff375f;
   --accent-graphite: #94a3b8;
+  --accent-cyan: #22d3ee;
+  --accent-indigo: #818cf8;
+  --accent-orange: #fb923c;
+  --accent-lime: #a3e635;
+  --accent-crimson: #f472b6;
+  --accent-gold: #fbbf24;
 }
 
 [data-accent="purple"] { --accent: var(--accent-purple); --user: color-mix(in srgb, var(--accent-purple) 22%, transparent); }
@@ -58,6 +70,12 @@
 [data-accent="amber"] { --accent: var(--accent-amber); --user: color-mix(in srgb, var(--accent-amber) 22%, transparent); }
 [data-accent="rose"] { --accent: var(--accent-rose); --user: color-mix(in srgb, var(--accent-rose) 22%, transparent); }
 [data-accent="graphite"] { --accent: var(--accent-graphite); --user: color-mix(in srgb, var(--accent-graphite) 22%, transparent); }
+[data-accent="cyan"] { --accent: var(--accent-cyan); --user: color-mix(in srgb, var(--accent-cyan) 22%, transparent); }
+[data-accent="indigo"] { --accent: var(--accent-indigo); --user: color-mix(in srgb, var(--accent-indigo) 22%, transparent); }
+[data-accent="orange"] { --accent: var(--accent-orange); --user: color-mix(in srgb, var(--accent-orange) 22%, transparent); }
+[data-accent="lime"] { --accent: var(--accent-lime); --user: color-mix(in srgb, var(--accent-lime) 22%, transparent); }
+[data-accent="crimson"] { --accent: var(--accent-crimson); --user: color-mix(in srgb, var(--accent-crimson) 22%, transparent); }
+[data-accent="gold"] { --accent: var(--accent-gold); --user: color-mix(in srgb, var(--accent-gold) 22%, transparent); }
 [data-accent="blue"], :root:not([data-accent]) { --accent: var(--accent-blue); --user: color-mix(in srgb, var(--accent-blue) 22%, transparent); }
 
 * { box-sizing: border-box; }

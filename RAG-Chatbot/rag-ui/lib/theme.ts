@@ -1,5 +1,5 @@
 export type Theme = "light" | "dark" | "system";
-export type AccentColor = "blue" | "purple" | "emerald" | "amber" | "rose" | "graphite";
+export type AccentColor = "blue" | "purple" | "emerald" | "amber" | "rose" | "graphite" | "cyan" | "indigo" | "orange" | "lime" | "crimson" | "gold";
 
 export interface AccentOption {
   id: AccentColor;
@@ -9,12 +9,18 @@ export interface AccentOption {
 }
 
 export const ACCENTS: AccentOption[] = [
-  { id: "blue", label: "Apple Blue", lightHex: "#0071e3", darkHex: "#2997ff" },
-  { id: "purple", label: "Vision Violet", lightHex: "#8e44ad", darkHex: "#bf5af2" },
-  { id: "emerald", label: "Emerald Mint", lightHex: "#059669", darkHex: "#30d158" },
-  { id: "amber", label: "Amber Sunset", lightHex: "#d97706", darkHex: "#ff9f0a" },
-  { id: "rose", label: "Rose Coral", lightHex: "#e11d48", darkHex: "#ff375f" },
-  { id: "graphite", label: "Titanium Slate", lightHex: "#475569", darkHex: "#94a3b8" },
+  { id: "blue",     label: "Apple Blue",      lightHex: "#0071e3", darkHex: "#2997ff" },
+  { id: "purple",   label: "Vision Violet",   lightHex: "#8e44ad", darkHex: "#bf5af2" },
+  { id: "cyan",     label: "Ocean Cyan",      lightHex: "#0891b2", darkHex: "#22d3ee" },
+  { id: "indigo",   label: "Midnight Indigo", lightHex: "#4338ca", darkHex: "#818cf8" },
+  { id: "emerald",  label: "Emerald Mint",    lightHex: "#059669", darkHex: "#30d158" },
+  { id: "lime",     label: "Electric Lime",   lightHex: "#65a30d", darkHex: "#a3e635" },
+  { id: "amber",    label: "Amber Sunset",    lightHex: "#d97706", darkHex: "#ff9f0a" },
+  { id: "orange",   label: "Burnt Orange",    lightHex: "#ea580c", darkHex: "#fb923c" },
+  { id: "gold",     label: "Warm Gold",       lightHex: "#a16207", darkHex: "#fbbf24" },
+  { id: "rose",     label: "Rose Coral",      lightHex: "#e11d48", darkHex: "#ff375f" },
+  { id: "crimson",  label: "Deep Crimson",    lightHex: "#be185d", darkHex: "#f472b6" },
+  { id: "graphite", label: "Titanium Slate",  lightHex: "#475569", darkHex: "#94a3b8" },
 ];
 
 const THEME_KEY = "rag.theme";

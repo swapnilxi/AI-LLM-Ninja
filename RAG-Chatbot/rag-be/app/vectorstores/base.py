@@ -80,13 +80,6 @@ class VectorStore(ABC):
     def sources(self) -> dict[str, SourceInfo]:
         """document_id -> info (used for stats only; indexing state lives in SQLite)."""
 
-
-def require_scope(profile_ids: Sequence[str]) -> list[str]:
-    ids = [p for p in profile_ids if p]
-    if not ids:
-        raise ValueError("A profile scope is required for vector search")
-    return ids
-
     @abstractmethod
     def reset(self) -> None:
         """Drop all indexed data."""
@@ -97,3 +90,10 @@ def require_scope(profile_ids: Sequence[str]) -> list[str]:
 
     def close(self) -> None:  # pragma: no cover - optional
         pass
+
+
+def require_scope(profile_ids: Sequence[str]) -> list[str]:
+    ids = [p for p in profile_ids if p]
+    if not ids:
+        raise ValueError("A profile scope is required for vector search")
+    return ids
