@@ -296,3 +296,14 @@ cd rag-be && pip install -e ".[dev]" && pytest      # offline: hash embedder + C
 - Embedding model was loaded at import time; DB dimension was a hand-kept env var that could silently mismatch.
 - Providers hard-wired (OpenAI, Groq), keys only via env, no UI, no incremental ingestion, upload path used the client filename unchecked, `__pycache__` and a personal résumé PDF were committed.
 - Replaced with the layered, tested design above.
+
+## Graph RAG
+
+Passages that mention the same entities (people, products, terms) are linked in a small graph built while indexing.
+In Chat, the **Graph** chip (or Settings → Graph RAG) adds passages connected to the question and the best matches,
+up to two hops, always inside the active business's scope. No extra LLM call at question time.
+
+- **Default: SQLite**, one local file (`GRAPH_DB_PATH`, default `data/graph.db`). No server, nothing to install.
+- **Optional: Neo4j.** `pip install -e ".[neo4j]"`, then in `.env`: `GRAPH_STORE=neo4j`, `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`.
+- Entities come from a free heuristic by default; `GRAPH_EXTRACTOR=llm` uses the model (one call per chunk while indexing).
+- Documents indexed before this feature need **Settings → Graph RAG → Rebuild graph** once (`POST /api/graph/rebuild`).

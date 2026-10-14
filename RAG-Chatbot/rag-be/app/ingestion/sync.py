@@ -16,6 +16,8 @@ from typing import Callable
 
 from ..config import Settings
 from ..embeddings import build_embedder
+from ..graphstores import forget as graph_forget
+from ..graphstores import index_chunks as graph_index
 from ..profiles import discover_profiles, profile_dir, scan_profile
 from ..registry import DELETED, DISCOVERED, FAILED, INDEXED, INDEXING, PENDING, STALE, Registry
 from ..vectorstores import Chunk, build_store
@@ -98,6 +100,36 @@ def sync_faqs(reg: Registry, profile_id: str, embedder, store, res: SyncResult) 
                 res.errors["FAQ: " + f["question"][:60]] = str(e)
 
 
+def _graph_llm(settings: Settings):
+    if settings.graph_enabled and settings.graph_extractor == "llm":
+        from ..llm import build_llm
+
+        return build_llm(settings)
+    return None
+
+
+def rebuild_graph(reg: Registry, settings: Settings, profile_id: str,
+                  progress: Callable[[str], None] = lambda _m: None) -> int:
+    """(Re)build one profile's graph from its already-indexed files. Re-chunks only (no embeddings, no vector writes),
+    so it is cheap with the heuristic extractor. Chunking is deterministic, so chunk ids match the vector store."""
+    from ..graphstores import forget
+
+    forget(settings, profile_id=profile_id)
+    folder, llm, total = profile_dir(settings.data_dir(), profile_id), _graph_llm(settings), 0
+    for doc in reg.list_documents(profile_id, (INDEXED,)):
+        path = folder / doc["relative_path"]
+        if not path.is_file():
+            continue
+        progress(f"[{profile_id}] graph: {doc['relative_path']}")
+        chunks = [Chunk(profile_id, doc["id"], doc["relative_path"], 0, text, doc["file_hash"], page)
+                  for page, section in load_file(path) for text in chunk_text(section, settings.chunk_size, settings.chunk_overlap)]
+        for n, c in enumerate(chunks):
+            c.index = n
+        graph_index(settings, chunks, llm)
+        total += len(chunks)
+    return total
+
+
 def index_profile(reg: Registry, settings: Settings, profile_id: str, *, retry_failed: bool = False,
                   progress: Callable[[str], None] = lambda _m: None) -> SyncResult:
     """Scan one profile folder and (re)index whatever changed. Unchanged documents are never re-embedded."""
@@ -118,6 +150,7 @@ def index_profile(reg: Registry, settings: Settings, profile_id: str, *, retry_f
 
     for doc in reg.list_documents(profile_id, (DELETED,)):
         store.delete_document(doc["id"])
+        graph_forget(settings, document_id=doc["id"])
         reg.delete_document(doc["id"])
         res.removed.append(doc["relative_path"])
 
@@ -145,6 +178,8 @@ def index_profile(reg: Registry, settings: Settings, profile_id: str, *, retry_f
             vectors = embedder.embed_documents([c.text for c in chunks])
             store.delete_document(doc["id"])  # replace, don't append, when a file changed
             store.add(chunks, vectors, embedder.signature)
+            graph_forget(settings, document_id=doc["id"])
+            graph_index(settings, chunks, _graph_llm(settings))
             reg.update_document(
                 doc["id"], status=INDEXED, indexed_hash=h, chunk_count=len(chunks), indexed_at=time.time(),
                 embedding_model=embedder.signature, embedding_version=EMBEDDING_VERSION, chunking_version=chunk_ver,
@@ -154,6 +189,7 @@ def index_profile(reg: Registry, settings: Settings, profile_id: str, *, retry_f
             res.chunks += len(chunks)
         except Exception as e:  # one bad file must not abort the whole job
             store.delete_document(doc["id"])
+            graph_forget(settings, document_id=doc["id"])
             reg.update_document(doc["id"], status=FAILED, error_message=str(e)[:500], chunk_count=0, indexed_hash="")
             res.errors[rel] = str(e)
 
@@ -247,6 +283,7 @@ class IndexManager:
             if job.rebuild:
                 self._progress("Dropping existing index")
                 build_store(settings).reset()
+                graph_forget(settings, everything=True)
                 self.reg.reset_index_state()
             targets = [p["id"] for p in self.reg.list_profiles() if p["status"] == "active"]
         else:
@@ -254,6 +291,7 @@ class IndexManager:
             if job.rebuild:
                 self._progress(f"[{job.profile_id}] Dropping profile index")
                 build_store(settings).delete_profile(job.profile_id)
+                graph_forget(settings, profile_id=job.profile_id)
                 self.reg.reset_index_state(job.profile_id)
         failures: list[str] = []
         for pid in targets:

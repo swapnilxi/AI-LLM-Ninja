@@ -97,7 +97,29 @@ CREATE TABLE IF NOT EXISTS document_categories (
     PRIMARY KEY (document_id, category_id)
 );
 CREATE INDEX IF NOT EXISTS idx_document_categories_category ON document_categories(category_id);
+CREATE TABLE IF NOT EXISTS agents (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,  -- the business this agent works for
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,                    -- planner | researcher | critic | synthesizer
+    description TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
+    focus TEXT NOT NULL DEFAULT '',        -- researchers: extra search terms appended to every query
+    model TEXT NOT NULL DEFAULT '',        -- '' = the configured LLM model
+    enabled INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    last_run_at REAL,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agents_profile ON agents(profile_id, position);
 """
+
+AGENT_ROLES = ("planner", "researcher", "critic", "synthesizer")
+_AGENT_FIELDS = {"name", "role", "description", "instructions", "focus", "model", "enabled"}
 
 _FAQ_FIELDS = {"question", "answer", "category", "enabled", "status", "indexed_hash", "embedding_model", "indexed_at", "error_message"}
 
@@ -119,6 +141,8 @@ class Registry:
             cols = {row["name"] for row in c.execute("PRAGMA table_info(profiles)")}
             if "use_faqs" not in cols:  # databases created before the FAQ manager
                 c.execute("ALTER TABLE profiles ADD COLUMN use_faqs INTEGER NOT NULL DEFAULT 1")
+            if "agents_seeded" not in cols:  # databases created before the agent manager
+                c.execute("ALTER TABLE profiles ADD COLUMN agents_seeded INTEGER NOT NULL DEFAULT 0")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -297,6 +321,70 @@ class Registry:
             c.execute("DELETE FROM document_categories WHERE document_id=?", (document_id,))
             c.executemany("INSERT OR IGNORE INTO document_categories (document_id, category_id) VALUES (?,?)",
                           [(document_id, cid) for cid in category_ids])
+
+    # ------------------------------------------------------------ agents
+    @staticmethod
+    def _agent(row: sqlite3.Row) -> dict:
+        d = dict(row)
+        d["enabled"] = bool(d["enabled"])
+        return d
+
+    def list_agents(self, profile_id: str | None = None) -> list[dict]:
+        sql, args = "SELECT * FROM agents", []
+        if profile_id:
+            sql, args = sql + " WHERE profile_id=?", [profile_id]
+        with self._conn() as c:
+            rows = c.execute(sql + " ORDER BY profile_id, position, created_at", args).fetchall()
+        return [self._agent(r) for r in rows]
+
+    def get_agent(self, agent_id: str) -> dict | None:
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM agents WHERE id=?", (agent_id,)).fetchone()
+        return self._agent(r) if r else None
+
+    def add_agent(self, profile_id: str, name: str, role: str, *, description: str = "", instructions: str = "",
+                  focus: str = "", model: str = "", enabled: bool = True) -> dict:
+        if role not in AGENT_ROLES:
+            raise ValueError(f"Unknown agent role '{role}'")
+        now, aid = time.time(), uuid.uuid4().hex
+        with self._conn() as c:
+            pos = c.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM agents WHERE profile_id=?", (profile_id,)).fetchone()[0]
+            c.execute("INSERT INTO agents (id, profile_id, name, role, description, instructions, focus, model, enabled, position, "
+                      "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (aid, profile_id, name, role, description, instructions, focus, model, int(enabled), pos, now, now))
+        return self.get_agent(aid)  # type: ignore[return-value]
+
+    def update_agent(self, agent_id: str, **fields: Any) -> dict:
+        bad = set(fields) - _AGENT_FIELDS
+        if bad:
+            raise ValueError(f"Unknown agent fields: {sorted(bad)}")
+        if fields.get("role", "researcher") not in AGENT_ROLES:
+            raise ValueError(f"Unknown agent role '{fields['role']}'")
+        if "enabled" in fields:
+            fields["enabled"] = int(bool(fields["enabled"]))
+        if fields:
+            sets = ", ".join(f"{k}=?" for k in fields)
+            with self._conn() as c:
+                c.execute(f"UPDATE agents SET {sets}, updated_at=? WHERE id=?", (*fields.values(), time.time(), agent_id))
+        return self.get_agent(agent_id)  # type: ignore[return-value]
+
+    def delete_agent(self, agent_id: str) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+
+    def record_agent_run(self, agent_id: str, error: str = "") -> None:
+        with self._conn() as c:
+            c.execute("UPDATE agents SET run_count=run_count+1, error_count=error_count+?, last_run_at=?, last_error=? WHERE id=?",
+                      (1 if error else 0, time.time(), error[:500], agent_id))
+
+    def agents_seeded(self, profile_id: str) -> bool:
+        with self._conn() as c:
+            r = c.execute("SELECT agents_seeded FROM profiles WHERE id=?", (profile_id,)).fetchone()
+        return bool(r and r[0])
+
+    def mark_agents_seeded(self, profile_id: str) -> None:
+        with self._conn() as c:
+            c.execute("UPDATE profiles SET agents_seeded=1 WHERE id=?", (profile_id,))
 
     # ------------------------------------------------------------ FAQs
     def list_faqs(self, profile_id: str) -> list[dict]:

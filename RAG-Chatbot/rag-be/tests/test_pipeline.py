@@ -153,7 +153,7 @@ def test_query_context_and_provider_override(pets, monkeypatch):
     assert len(r["sources"]) == 1 and "Voyager" in r["context"]
 
     used = {}
-    monkeypatch.setattr("app.rag.build_llm", lambda s: (used.update(p=s.llm_provider, m=s.llm_model), type("L", (), {"stream": lambda self, m: iter(["ok"])})())[1])
+    monkeypatch.setattr("app.rag.pipeline.build_llm", lambda s: (used.update(p=s.llm_provider, m=s.llm_model), type("L", (), {"stream": lambda self, m: iter(["ok"])})())[1])
     client.post("/api/chat", json={"profile_id": "pets", "message": "hi", "stream": False, "provider": "groq", "model": "x"})
     assert used == {"p": "groq", "m": "x"}
     assert client.post("/api/chat", json={"profile_id": "pets", "message": "hi", "provider": "nope"}).status_code == 422

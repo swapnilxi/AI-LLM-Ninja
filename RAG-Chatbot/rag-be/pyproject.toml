@@ -20,10 +20,12 @@ dependencies = [
 local = ["sentence-transformers>=3.0"]
 # Only for the standalone scripts in learning/
 learning = ["asyncpg>=0.29", "openai>=1.30"]
+# Only for GRAPH_STORE=neo4j (the default sqlite graph needs nothing)
+neo4j = ["neo4j>=5.20"]
 dev = ["pytest>=8", "pytest-asyncio", "pgserver"]
 
 [tool.setuptools]
-packages = ["app", "app.core", "app.llm", "app.llm.openai", "app.llm.groq", "app.llm.gemini", "app.llm.ollama", "app.llm.deepseek", "app.llm.openrouter", "app.embeddings", "app.vectorstores", "app.ingestion", "app.utils"]
+packages = ["app", "app.core", "app.llm", "app.llm.openai", "app.llm.groq", "app.llm.gemini", "app.llm.ollama", "app.llm.deepseek", "app.llm.openrouter", "app.embeddings", "app.vectorstores", "app.graphstores", "app.agents", "app.rag", "app.ingestion", "app.utils"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

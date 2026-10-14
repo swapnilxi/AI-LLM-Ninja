@@ -8,12 +8,13 @@ import type { Profile } from "@/lib/api";
 import ProfileSwitcher from "./ProfileSwitcher";
 import { Spinner } from "./ui";
 
-export type View = "overview" | "chat" | "documents" | "faqs" | "guides" | "profiles" | "settings";
+export type View = "overview" | "chat" | "documents" | "faqs" | "agents" | "guides" | "profiles" | "settings";
 const NAV: { id: View; label: string; icon: IconName }[] = [
   { id: "overview", label: "Overview", icon: "grid" },
   { id: "chat", label: "Chat", icon: "chat" },
   { id: "documents", label: "Documents", icon: "doc" },
   { id: "faqs", label: "FAQs", icon: "help" },
+  { id: "agents", label: "Agents", icon: "users" },
   { id: "guides", label: "Guides", icon: "book" },
   { id: "profiles", label: "Profiles", icon: "database" },
   { id: "settings", label: "Settings", icon: "gear" },

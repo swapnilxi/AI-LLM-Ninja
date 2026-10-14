@@ -7,7 +7,16 @@ export type Faq = {
   id: string; question: string; answer: string; category: string; enabled: boolean; position: number;
   status: "PENDING" | "INDEXED" | "FAILED" | "DISABLED"; indexed_at: number | null; error_message: string; updated_at: number;
 };
-export type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Source[]; error?: string; at?: number; searchOnly?: boolean };
+export type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Source[]; steps?: AgentStep[]; graph?: string[]; error?: string; at?: number; searchOnly?: boolean };
+export type AgentRole = "planner" | "researcher" | "critic" | "synthesizer";
+export type Agent = {
+  id: string; profile_id: string; profile_name: string; name: string; role: AgentRole; description: string;
+  instructions: string; focus: string; model: string; enabled: boolean; position: number;
+  run_count: number; error_count: number; last_run_at: number | null; last_error: string; updated_at: number;
+};
+export type Business = { id: string; name: string; is_common: boolean; agents: number };
+export type AgentsResponse = { agents: Agent[]; businesses: Business[]; roles: Record<AgentRole, string>; max_researchers: number };
+export type AgentStep = { agent_id: string; name: string; role: AgentRole; status: "running" | "done" | "error"; detail: string };
 export type Settings = Record<string, string | number | boolean>;
 export type ProviderInfo = { label: string; default_model?: string; models?: string[]; fields: string[] };
 export type Catalog = {
@@ -117,16 +126,17 @@ export async function streamChat(
   profileId: string,
   message: string,
   history: ChatMessage[],
-  on: { sources: (s: Source[]) => void; token: (t: string) => void },
+  on: { sources: (s: Source[], graph?: { enabled: boolean; entities: string[] }) => void; token: (t: string) => void; agent?: (s: AgentStep) => void },
   signal: AbortSignal,
-  override: { provider?: string; model?: string } = {},
+  override: { provider?: string; model?: string; multiAgent?: boolean; graphRag?: boolean } = {},
 ): Promise<void> {
   await postSSE("/chat", {
     profile_id: profileId, message, history: history.map(({ role, content }) => ({ role, content })), stream: true,
-    provider: override.provider || undefined, model: override.model || undefined,
+    provider: override.provider || undefined, model: override.model || undefined, multi_agent: override.multiAgent || undefined, graph_rag: override.graphRag,
   }, (ev) => {
-    if (ev.type === "sources") on.sources(ev.sources);
+    if (ev.type === "sources") on.sources(ev.sources, ev.graph);
     else if (ev.type === "token") on.token(ev.text);
+    else if (ev.type === "agent") on.agent?.(ev);
     else if (ev.type === "error") throw new ApiError(ev.message, 502);
   }, signal);
 }

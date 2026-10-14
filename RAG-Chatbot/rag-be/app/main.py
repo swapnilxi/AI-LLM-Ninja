@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .agents import build_router, ensure_default_agents, multi_agent_events
 from .catalog import CATALOG
 from .config import BASE_DIR, ConfigManager, load_server_config, resolve_path
 from .embeddings import build_embedder
@@ -22,7 +23,11 @@ from .embeddings import PROVIDERS as EMBEDDERS
 from .guides import AnalyzeRequest, AnalyzeResponse, ExplainRequest, GuidesError
 from .guides import analyze as run_guides_analysis
 from .guides import explain_messages
+from .graphstores import build_graph
+from .graphstores import close_all as close_graphs
+from .graphstores import forget as graph_forget
 from .http import ProviderError
+from .ingestion.sync import rebuild_graph
 from .ingestion import EMBEDDING_VERSION, SUPPORTED, IndexManager, chunking_version, faq_document_id
 from .llm import PROVIDERS, build_llm
 from .profiles import (UnsafePath, discover_profiles, list_folders, profile_dir, safe_join, scan_profile,
@@ -52,12 +57,15 @@ def _auto_sync_loop() -> None:
 async def lifespan(_: FastAPI):
     registry.recover_interrupted()
     discover_profiles(registry, cfg.current.data_dir())  # filesystem -> SQLite (cheap; always done)
+    for p in registry.list_profiles():
+        ensure_default_agents(registry, p["id"])
     if server.sync_on_startup:
         sync_mgr.enqueue(None)  # runs in the background; failures show up in /api/ingest/status
     threading.Thread(target=_auto_sync_loop, daemon=True).start()
     yield
     _stop.set()
     close_all()
+    close_graphs()
 
 
 app = FastAPI(title="RAG Chatbot API", version=__version__, lifespan=lifespan)
@@ -138,8 +146,16 @@ def status():
         store = {"ok": True, "backend": info.backend, "location": info.location, "chunks": info.chunks, "sources": info.sources}
     except Exception as e:
         store = {"ok": False, "error": str(e)}
+    graph = {"enabled": s.graph_enabled, "backend": s.graph_store}
+    if s.graph_enabled:
+        try:
+            gi = build_graph(s).ping()
+            graph.update(ok=True, location=gi.location, chunks=gi.chunks, entities=gi.entities)
+        except Exception as e:
+            graph.update(ok=False, error=str(e)[:300])
     return {
         "store": store,
+        "graph": graph,
         "sync": sync_mgr.status,
         "profiles": len(registry.list_profiles()),
         "flags": {"allow_ui_config": server.allow_ui_config, "allow_ui_upload": server.allow_ui_upload},
@@ -175,7 +191,7 @@ def reset_config():
 
 
 class TestRequest(BaseModel):
-    target: str = Field(pattern="^(llm|embedding|vector_store)$")
+    target: str = Field(pattern="^(llm|embedding|vector_store|graph)$")
     values: dict = {}  # unsaved edits from the form
 
 
@@ -198,6 +214,18 @@ def test_config(body: TestRequest):
         elif body.target == "embedding":
             e = build_embedder(s)
             detail = f"{e.signature} -> {len(e.embed_query('hello world'))}-dim vectors"
+        elif body.target == "graph":
+            if s.graph_store == "neo4j":  # fresh connection with the unsaved values; never cached
+                from .graphstores.neo4j_graph import Neo4jGraphStore
+
+                g = Neo4jGraphStore(s)
+                try:
+                    gi = g.ping()
+                finally:
+                    g.close()
+            else:
+                gi = build_graph(s).ping()
+            detail = f"{gi.backend} @ {gi.location}: {gi.chunks} chunks, {gi.entities} entities"
         else:
             info = build_store(s).ping()
             detail = f"{info.backend} @ {info.location}: {info.chunks} chunks from {info.sources} files"
@@ -362,6 +390,7 @@ def delete_profile(profile_id: str, delete_files: bool = False, confirm: str = "
         if confirm != profile_id:
             raise HTTPException(400, f"Deleting files requires confirm={profile_id}")
     build_store(cfg.current).delete_profile(profile_id)
+    graph_forget(cfg.current, profile_id=profile_id)
     registry.purge_profile_documents(profile_id)
     if delete_files:
         folder = profile_dir(cfg.current.data_dir(), profile_id)
@@ -384,6 +413,7 @@ def clear_profile_index(profile_id: str):
     """Drop the vector index of one profile (files and profile stay). Documents become STALE until re-indexed."""
     _profile_or_404(profile_id)
     build_store(cfg.current).delete_profile(profile_id)
+    graph_forget(cfg.current, profile_id=profile_id)
     registry.reset_index_state(profile_id)
     return {"cleared": profile_id}
 
@@ -430,6 +460,7 @@ def reindex_documents(profile_id: str, retry_failed: bool = True):
     _profile_or_404(profile_id)
     _scan(profile_id)
     build_store(cfg.current).delete_profile(profile_id)
+    graph_forget(cfg.current, profile_id=profile_id)
     registry.reset_index_state(profile_id)
     return {"started": sync_mgr.enqueue(profile_id, retry_failed=retry_failed), "status": sync_mgr.status}
 
@@ -579,6 +610,7 @@ def delete_folder(profile_id: str, folder_path: str, recursive: bool = False, co
         for d in registry.list_documents(profile_id):
             if d["relative_path"].startswith(rel):
                 store.delete_document(d["id"])
+                graph_forget(cfg.current, document_id=d["id"])
                 registry.delete_document(d["id"])
         shutil.rmtree(target)
     else:
@@ -698,6 +730,22 @@ def delete_faq(profile_id: str, faq_id: str):
 
 
 # ---------------------------------------------------------------- ingestion status
+@app.post("/api/graph/rebuild", dependencies=auth)
+def rebuild_graph_all(profile_id: str = ""):
+    """Rebuild the entity graph from already-indexed files (all businesses, or `?profile_id=`). Needed once for documents
+    indexed before Graph RAG existed, or after switching graph store / extractor."""
+    s = cfg.current
+    if not s.graph_enabled:
+        raise HTTPException(409, "The graph is disabled (GRAPH_ENABLED=false)")
+    ids = [_profile_or_404(profile_id)["id"]] if profile_id else [p["id"] for p in registry.list_profiles() if p["status"] == "active"]
+    try:
+        chunks = sum(rebuild_graph(registry, s, pid) for pid in ids)
+        info = build_graph(s).ping()
+    except ProviderError as e:
+        raise HTTPException(502, str(e))
+    return {"profiles": ids, "chunks": chunks, "graph": {"backend": info.backend, "chunks": info.chunks, "entities": info.entities}}
+
+
 @app.get("/api/ingest/status", dependencies=auth)
 def ingest_status():
     return sync_mgr.status
@@ -717,6 +765,8 @@ class ChatRequest(BaseModel):
     # optional per-request override of the configured LLM (replaces the old /chat-openai/, /chat-groq/)
     provider: str | None = None
     model: str | None = None
+    graph_rag: bool | None = None  # None = use the configured default (Settings -> graph_rag)
+    multi_agent: bool = False  # run the profile's agent team (planner / researchers / critic / synthesizer)
 
 
 class ContextRequest(BaseModel):
@@ -748,17 +798,21 @@ def chat(body: ChatRequest):
             update["llm_provider"] = body.provider
         s = s.model_copy(update=update)
     history = [m.model_dump() for m in body.history]
+    if body.multi_agent:
+        ensure_default_agents(registry, ctx.profile_id)
+    run = (lambda: multi_agent_events(s, registry, body.message, history, ctx, body.graph_rag)) if body.multi_agent \
+        else (lambda: answer_events(s, body.message, history, ctx, body.graph_rag))
 
     if not body.stream:
         sources, answer = [], []
-        for ev in answer_events(s, body.message, history, ctx):
+        for ev in run():
             if ev["type"] == "sources":
                 sources = ev["sources"]
             elif ev["type"] == "token":
                 answer.append(ev["text"])
         return {"answer": "".join(answer), "sources": sources}
 
-    events = answer_events(s, body.message, history, ctx)
+    events = run()
     try:
         first = next(events)  # surface retrieval errors (bad DB, index mismatch) as real HTTP errors
     except StopIteration:
@@ -777,6 +831,9 @@ def chat(body: ChatRequest):
             yield pack({"type": "error", "message": str(e)})
 
     return StreamingResponse(sse(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+app.include_router(build_router(registry, auth, _profile_or_404))  # /api/agents (see app/agents/)
 
 
 # ---------------------------------------------------------------- guides (RAG best-practice checklist)

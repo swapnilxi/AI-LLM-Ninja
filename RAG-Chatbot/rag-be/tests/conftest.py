@@ -24,14 +24,14 @@ def client(tmp_path, monkeypatch):
     data.mkdir()
     for k, v in {
         "RAG_DATA_DIR": str(data), "CHROMA_PATH": str(tmp_path / "chroma"), "SETTINGS_FILE": str(tmp_path / "s.json"),
-        "DB_FILE": str(tmp_path / "app.db"), "EMBEDDING_PROVIDER": "hash", "VECTOR_STORE": "chroma",
+        "DB_FILE": str(tmp_path / "app.db"), "GRAPH_DB_PATH": str(tmp_path / "graph.db"), "EMBEDDING_PROVIDER": "hash", "VECTOR_STORE": "chroma",
         "SYNC_ON_STARTUP": "false", "TOP_K": "3",
     }.items():
         monkeypatch.setenv(k, v)
     import app.main as main
     main = importlib.reload(main)
     FakeLLM.calls = []
-    monkeypatch.setattr("app.rag.build_llm", lambda s: FakeLLM())
+    monkeypatch.setattr("app.rag.pipeline.build_llm", lambda s: FakeLLM())
     with TestClient(main.app) as c:
         c.main, c.data = main, data
 

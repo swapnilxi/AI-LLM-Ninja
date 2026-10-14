@@ -15,6 +15,10 @@ export type Chat = {
   provider?: string;
   model?: string;
   searchOnly?: boolean;
+  /** answer with the business's agent team (planner / researchers / critic / writer) */
+  multiAgent?: boolean;
+  /** undefined = follow the Settings default */
+  graphRag?: boolean;
 };
 
 const KEY = "rag.chats.v1";

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 BASE_DIR = Path(__file__).resolve().parent.parent  # rag-be/
 load_dotenv(BASE_DIR / ".env")
@@ -32,7 +32,7 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 SECRET_FIELDS = {
-    "gemini_api_key", "deepseek_api_key", "openrouter_api_key", "openai_api_key", "groq_api_key", "database_url",
+    "gemini_api_key", "deepseek_api_key", "openrouter_api_key", "openai_api_key", "groq_api_key", "database_url", "neo4j_password",
 }
 MASK = "••••"
 
@@ -57,6 +57,16 @@ class Settings(BaseModel):
     database_url: str = ""  # local Postgres or Neon (needs pgvector)
     vector_table: str = "rag_chunks"  # table / collection name
 
+    # ---- Graph store (Graph RAG) -----------------------------------------
+    graph_enabled: bool = True  # build the entity graph while indexing (cheap with the heuristic extractor)
+    graph_store: Literal["sqlite", "neo4j"] = "sqlite"  # sqlite = one local file, no server
+    graph_db_path: str = "data/graph.db"
+    graph_extractor: Literal["heuristic", "llm"] = "heuristic"  # llm = one model call per chunk while indexing
+    neo4j_uri: str = "bolt://localhost:7687"
+    neo4j_user: str = "neo4j"
+    neo4j_password: str = ""
+    neo4j_database: str = "neo4j"
+
     # ---- RAG behaviour ---------------------------------------------------
     chunk_size: int = Field(800, ge=100, le=8000)
     chunk_overlap: int = Field(120, ge=0)
@@ -64,6 +74,7 @@ class Settings(BaseModel):
     score_threshold: float = Field(0.0, ge=0, le=1)
     history_turns: int = Field(4, ge=0, le=20)
     query_rewrite: bool = False
+    graph_rag: bool = False  # default for "Graph RAG": expand retrieval along entities found in the top passages (extra LLM call)
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     rag_data_dir: str = "../rag-data"  # each folder directly inside is one profile
     auto_sync_interval: int = Field(0, ge=0)  # seconds; 0 = only sync on demand
@@ -79,6 +90,14 @@ class Settings(BaseModel):
     openai_base_url: str = "https://api.openai.com/v1"  # also works for any OpenAI-compatible server
     groq_api_key: str = ""
     groq_base_url: str = "https://api.groq.com/openai/v1"
+
+    @field_validator("neo4j_uri")
+    @classmethod
+    def _check_neo4j_uri(cls, v: str) -> str:
+        v = v.strip()
+        if v and not re.match(r"^(bolt|neo4j)(\+s|\+ssc)?://[^\s/]+(:\d+)?/?$", v):
+            raise ValueError("Neo4j URI must look like bolt://localhost:7687, neo4j://host:7687 or neo4j+s://<id>.databases.neo4j.io")
+        return v
 
     @model_validator(mode="after")
     def _check_overlap(self) -> "Settings":

@@ -8,7 +8,7 @@ import { Chat as ChatT, chatToMarkdown } from "@/lib/chats";
 import { citationLabel, kindOf, openDocument } from "@/utils/files";
 import { Icon, fileIcon } from "./Icons";
 import type { View } from "./Sidebar";
-import { useToast } from "./ui";
+import { Spinner, useToast } from "./ui";
 
 type Props = {
   chat: ChatT;
@@ -79,9 +79,15 @@ export default function Chat({ chat, onChange, onNavigate, config, storeChunks, 
         setExpanded((s) => new Set(s).add(base.length + 1));
       } else {
         await streamChat(profile.id, q, history, {
-          sources: (sources) => patchLast((m) => ({ ...m, sources })),
+          sources: (sources, graph) => patchLast((m) => ({ ...m, sources, graph: graph?.entities })),
           token: (t) => patchLast((m) => ({ ...m, content: m.content + t })),
-        }, abort.current.signal, { provider: chat.provider, model: chat.model });
+          agent: (s) => patchLast((m) => {
+            const steps = [...(m.steps ?? [])];
+            const i = steps.findIndex((x) => x.agent_id === s.agent_id);
+            if (i >= 0) steps[i] = s; else steps.push(s);
+            return { ...m, steps };
+          }),
+        }, abort.current.signal, { provider: chat.provider, model: chat.model, multiAgent: chat.multiAgent, graphRag: chat.graphRag });
       }
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
@@ -120,6 +126,7 @@ export default function Chat({ chat, onChange, onNavigate, config, storeChunks, 
     return s.slice(0, 4);
   }, [docNames, profile.name]);
 
+  const graphOn = chat.graphRag ?? Boolean(config?.graph_rag);
   const defaultLabel = config ? `Default (${config.llm_provider})` : "Default";
   const lastIdx = messages.length - 1;
 
@@ -162,6 +169,22 @@ export default function Chat({ chat, onChange, onNavigate, config, storeChunks, 
                   <div className="bubble">
                     {m.role === "user" ? m.content : (
                       <>
+                        {m.steps && m.steps.length > 0 && (
+                          <div className="agent-steps" aria-label="Agent activity">
+                            {m.steps.map((st) => (
+                              <span key={st.agent_id} className={`agent-step ${st.status}`} title={st.detail || st.role}>
+                                {st.status === "running" ? <Spinner size={11} /> : <Icon name={st.status === "error" ? "alert" : "check"} size={11} />}
+                                {st.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {m.graph && m.graph.length > 0 && (
+                          <div className="agent-steps" aria-label="Graph entities">
+                            <span className="agent-step done" title="Entities followed to find related passages"><Icon name="share" size={11} />Graph</span>
+                            {m.graph.map((e) => <span key={e} className="agent-step">{e}</span>)}
+                          </div>
+                        )}
                         {m.content ? (
                           <div className="md">
                             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
@@ -246,6 +269,12 @@ export default function Chat({ chat, onChange, onNavigate, config, storeChunks, 
               )}
               <button type="button" className={`chip ${chat.searchOnly ? "on" : ""}`} onClick={() => onChange((c) => ({ ...c, searchOnly: !c.searchOnly }))}
                 title="Retrieve matching passages only — no LLM call, no API cost"><Icon name="search" size={14} />Search only</button>
+              <button type="button" className={`chip ${graphOn && !chat.searchOnly ? "on" : ""}`} disabled={chat.searchOnly}
+                onClick={() => onChange((c) => ({ ...c, graphRag: !graphOn }))}
+                title="Graph RAG: also pull passages about the entities found in the best matches (extra LLM call)"><Icon name="share" size={14} />Graph</button>
+              <button type="button" className={`chip ${chat.multiAgent && !chat.searchOnly ? "on" : ""}`} disabled={chat.searchOnly}
+                onClick={() => onChange((c) => ({ ...c, multiAgent: !c.multiAgent }))}
+                title={`Answer with ${profile.name}'s agent team (manage it in Agents)`}><Icon name="users" size={14} />Agents</button>
             </div>
             {busy
               ? <button type="button" className="send stop" onClick={() => abort.current?.abort()} title="Stop generating"><Icon name="stop" size={15} /></button>

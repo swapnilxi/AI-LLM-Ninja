@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError, AppStatus, getToken, Profile, Settings, setToken, SyncStatus } from "@/lib/api";
 import { useChats } from "@/lib/chats";
 import { applyAppearance } from "@/lib/theme";
+import Agents from "@/components/Agents";
 import Chat from "@/components/Chat";
 import Documents from "@/components/Documents";
 import FaqManager from "@/components/FaqManager";
@@ -16,7 +17,7 @@ import Sidebar, { Health, View } from "@/components/Sidebar";
 import { Icon } from "@/components/Icons";
 import { ToastProvider } from "@/components/ui";
 
-const VIEWS: View[] = ["overview", "chat", "documents", "faqs", "guides", "profiles", "settings"];
+const VIEWS: View[] = ["overview", "chat", "documents", "faqs", "agents", "guides", "profiles", "settings"];
 const pref = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const setPref = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch {} };
 
@@ -196,6 +197,7 @@ export default function Home() {
             {view === "overview" && <div className="view scroll"><Overview status={status} config={config} profile={profile} onNavigate={setView} onRefresh={probe} /></div>}
             {view === "documents" && <div className="view scroll">{profile ? <Documents profile={profile} sync={sync} canEdit={canUpload} onChanged={probe} /> : <div className="empty"><p className="muted">No profile selected.</p></div>}</div>}
             {view === "faqs" && <div className="view scroll">{profile ? <FaqManager profile={profile} sync={sync} canEdit={canUpload} onChanged={probe} /> : <div className="empty"><p className="muted">No profile selected.</p></div>}</div>}
+            {view === "agents" && <div className="view scroll"><Agents profiles={profiles} activeId={activeId} onChanged={probe} /></div>}
             {view === "guides" && <div className="view scroll"><Guides /></div>}
             {view === "profiles" && (
               <div className="view scroll">
