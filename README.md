@@ -31,6 +31,17 @@ A full-stack chat application built with a React frontend and a Flask backend. I
 
 
 
+### 🧩 MultiAgent - AgentForge
+
+A full-stack, multi-tenant **multi-agent orchestration platform** (FastAPI + React). See [MultiAgent/README.md](MultiAgent/README.md).
+
+- **Features**:
+  - Reusable agents, skills, tools and app connectors (GitHub, Slack, Notion, Jira, Linear, MCP servers, …) that receive org + project context at runtime.
+  - Teams with 5 orchestration styles, a visual workflow builder, and cron/interval/webhook automations.
+  - Web search + browser tools, document knowledge (agent/project/org), and long-term agent/project memory.
+  - Multi-provider models (Claude, OpenAI, Groq, Gemini, Ollama, …) plus an offline mock model.
+  - Security: RBAC, encrypted secrets, rate limiting, SSRF protection, audit logs; mobile-responsive dashboard.
+
 ### 🛠️ Machine Maintenance Dashboard
 
 A web application built with Flask that serves as a dashboard for monitoring and maintaining industrial machinery.

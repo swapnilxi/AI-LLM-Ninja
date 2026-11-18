@@ -1,0 +1,24 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy[asyncio]>=2.0.30
+aiosqlite>=0.20
+pydantic>=2.7
+pydantic-settings>=2.3
+email-validator>=2.1
+pyjwt>=2.8
+cryptography>=42
+httpx>=0.27
+beautifulsoup4>=4.12
+jinja2>=3.1
+croniter>=2.0
+python-multipart>=0.0.9
+anthropic>=2.0
+openai>=1.40
+mcp>=1.10
+ddgs>=9.0
+pypdf>=4.0
+python-docx>=1.1
+redis>=5.0
+# Optional:
+#   asyncpg           -> PostgreSQL  (DATABASE_URL=postgresql+asyncpg://...)
+#   playwright        -> JavaScript rendering for the browser tool (then: playwright install chromium)

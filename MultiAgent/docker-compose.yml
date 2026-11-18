@@ -1,0 +1,31 @@
+# docker compose up --build   ->  http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agentforge
+      POSTGRES_PASSWORD: agentforge
+      POSTGRES_DB: agentforge
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentforge"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+  app:
+    build: .
+    ports: ["8000:8000"]
+    env_file: [backend/.env]
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+asyncpg://agentforge:agentforge@db:5432/agentforge
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:8000
+      PUBLIC_BASE_URL: http://localhost:8000
+      TRUST_PROXY_HEADERS: "false"
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_started }
+volumes:
+  pgdata:
