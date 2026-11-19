@@ -8,13 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import OrgContext, audit, filter_visible_ids, get_org_ctx, get_project, require_role
-from ..models import Agent, Connection, Document, Memory, Project, Tool
+from ..models import Agent, Connection, Document, Memory, Project, Skill, Tool
 from ..schemas import ProjectIn, ProjectOut, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-_BOOL = ("web_access", "memory_enabled", "browser_for_all_agents", "browser_render_js")
-_LIST = ("allowed_domains", "blocked_domains", "shared_tool_ids", "connection_ids", "blocked_tools")
+_BOOL = ("web_access", "memory_enabled", "browser_for_all_agents", "browser_render_js", "tasks_enabled", "scheduling_enabled", "skill_discovery_enabled")
+_LIST = ("allowed_domains", "blocked_domains", "shared_tool_ids", "connection_ids", "blocked_tools", "skill_ids")
 _STR = ("default_agent_id", "timezone")
 
 
@@ -33,6 +33,8 @@ async def clean_settings(session: AsyncSession, ctx: OrgContext, raw: dict[str, 
             raise HTTPException(400, f"Unknown project setting '{k}'")
     if "shared_tool_ids" in out:
         out["shared_tool_ids"] = await filter_visible_ids(session, Tool, out["shared_tool_ids"], ctx.org_id)
+    if "skill_ids" in out:  # project-level skills: given to every agent that runs in this project
+        out["skill_ids"] = await filter_visible_ids(session, Skill, list(dict.fromkeys(out["skill_ids"])), ctx.org_id)
     if "connection_ids" in out:
         rows = (await session.execute(select(Connection.id).where(Connection.id.in_(out["connection_ids"]), Connection.org_id == ctx.org_id))).scalars().all()
         out["connection_ids"] = [i for i in out["connection_ids"] if i in set(rows)]

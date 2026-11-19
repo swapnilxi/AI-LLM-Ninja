@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, Copy, Ellipsis, ExternalLink, ListTree, LoaderCircle, Pencil, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users } from "lucide-react";
+import { Check, ChevronLeft, Copy, Ellipsis, ExternalLink, ListChecks, ListTree, LoaderCircle, Pencil, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { http } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -14,6 +14,7 @@ import { Badge, Button, Input, PageLoader } from "@/components/ui/primitives";
 import { Markdown } from "@/components/ui/Markdown";
 import { AgentAvatar, IconTile } from "@/components/ui/icons";
 import { RunTimeline } from "@/components/run/RunTimeline";
+import { ExtractTasksDialog } from "@/components/tasks/ExtractTasksDialog";
 import { Composer, type BuiltinCommand } from "./Composer";
 import { CommandsHelpDialog, ConversationSkillsDialog } from "./ChatDialogs";
 
@@ -57,6 +58,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [tasksFor, setTasksFor] = useState<ChatMessage | null>(null);
   const commands = useSkillCommands();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -302,6 +304,11 @@ export function Thread({ conversationId }: { conversationId: string }) {
                       <button onClick={() => copy(m)} className="cursor-pointer rounded-md p-1 hover:bg-surface-2 hover:text-fg" aria-label="Copy answer" title="Copy">
                         {copied === m.id ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                       </button>
+                      {can("member") && (
+                        <button onClick={() => setTasksFor(m)} className="cursor-pointer rounded-md p-1 hover:bg-surface-2 hover:text-fg" aria-label="Turn into tasks" title="Turn into tasks">
+                          <ListChecks className="size-3.5" />
+                        </button>
+                      )}
                       <button
                         onClick={() => feedback(m, "up")}
                         className={cn("cursor-pointer rounded-md p-1 hover:bg-surface-2 hover:text-fg", m.meta?.feedback?.rating === "up" && "text-success")}
@@ -376,6 +383,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
       <ConversationSkillsDialog open={skillsOpen} onClose={() => setSkillsOpen(false)} conversation={c} />
       <CommandsHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} commands={commands.data ?? []} onPick={(cmd) => setSuggestion((prev) => (prev === cmd ? `${cmd} ` : cmd))} />
 
+      {tasksFor && <ExtractTasksDialog open onClose={() => setTasksFor(null)} projectId={c.project_id} initialText={tasksFor.content} conversationId={conversationId} messageId={tasksFor.id} />}
       <Dialog
         open={renaming}
         onClose={() => setRenaming(false)}

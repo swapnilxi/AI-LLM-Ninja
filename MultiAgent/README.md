@@ -7,6 +7,9 @@ AgentForge is a full-stack app for building, running and managing AI agents from
 - **Workflows:** a visual DAG builder (React Flow) with agent, team, tool, LLM, condition, template and output nodes.
 - **Automations:** runs can be triggered on a cron schedule, on an interval, by a webhook, or manually.
 - **Browser use:** web search (DuckDuckGo with no key, or Tavily/Brave) and a browser tool that reads web pages. JavaScript rendering through Playwright is optional. Both can be switched on or off per agent and per project, with domain allow and block lists.
+- **Discover (one-click installs):** a catalog of top skills (Anthropic and Vercel frontend design, diagram design, Karpathy guidelines, Cloudflare Zero Trust, cybersecurity playbooks, Browser Use, agentmemory, OpenViking), 10 popular MCP servers, a live search of the public skills.sh registry, and `find-skills`. Installs can be **attached to a project**, so every agent running there can use them.
+- **Tasks:** to-dos per project. Turn any chat reply or pasted text into tasks, give them context, and hand a task to an agent. Agents get `create_tasks`, `list_tasks` and `update_task` tools.
+- **Scheduler with AI:** describe a schedule in plain English ("every weekday at 9am summarise my open PRs") and get a reviewed automation draft. Agents can also schedule runs from chat when you enable it.
 - **Skills and `/commands`:** skills can be attached to an agent or to a single chat, or invoked for one message with a slash command. Twelve ready-made templates are included.
 - **Knowledge:** you can attach documents (PDF, DOCX, MD, TXT, CSV, HTML or a URL) to an agent, a project or a whole org. Documents are searched with BM25. You can also *pin* a document so it is added to every prompt.
 - **Memory:** each agent has private memory, and each project has memory shared by all its agents. The agent writes to it with the `memory` tool, and you can edit it in the UI.
@@ -21,12 +24,13 @@ AgentForge is a full-stack app for building, running and managing AI agents from
 MultiAgent/
 ├── backend/            FastAPI + async SQLAlchemy (SQLite by default, Postgres-ready)
 │   ├── app/
-│   │   ├── api/        REST routers (auth, orgs, projects, library, connectors, knowledge, runs, chat, automations, dashboard, transfer)
+│   │   ├── api/        REST routers (auth, orgs, projects, library, connectors, hub, tasks, knowledge, runs, chat, automations, dashboard, transfer)
 │   │   ├── engine/     runtime: llm providers, tools, connectors, runner, orchestrator, workflow DAG, scheduler, SSRF-safe net
 │   │   ├── models.py   tenancy + library + execution tables
 │   │   └── main.py     app, middleware, lifespan (DB init, seed, scheduler)
 │   └── tests/          end-to-end tests using the mock model
 ├── frontend/           React 19 + Vite + Tailwind v4 + React Query + React Flow
+├── .agents/            project-level skills, MCP configs and reference lists for the agents that work on this repo (see .agents/README.md)
 ├── Dockerfile          single image: API + built SPA
 ├── docker-compose.yml  app + Postgres + Redis
 ├── startup.sh          one-command launcher (dev / prod / docker / test / doctor …)
@@ -98,6 +102,34 @@ Commands are handled on the server, so they work everywhere: chat, `POST /api/ru
 
 **Templates:** the Skills page → **Templates** has 12 ready-made skills, each with its own command. They include `/summarize`, `/brief`, `/email`, `/translate`, `/codereview`, `/sql`, `/notes`, `/swot`, `/extract`, `/post`, `/eli5` and `/okrs`. You can also **import a SKILL.md** file, or **Install** one by pasting a command such as `npx skills add anthropics/skills --skill pdf`. The server downloads the SKILL.md from GitHub and never runs npx. The 6 starter skills come with `/research`, `/write`, `/calc`, `/docs`, `/review` and `/remember`.
 
+## Discover: install skills, tools and connectors
+
+Open **Discover** in the sidebar. With **Attach to project on install** on, whatever you install is added to the active project, so every agent that runs there can use it. You can also attach later under **Projects → Tools & connectors**.
+
+- **Skills:** curated packs, plus a search box over the public [skills.sh](https://skills.sh) registry (most installed first). Each pack shows who publishes it: **Official** (the vendor), **Community** (read it before attaching) or **Built in**. Skills are copied as text and never executed.
+- **Connectors (MCP):** one click for remote MCP servers such as DeepWiki, Context7, Exa, Cloudflare Docs, Hugging Face, Browser Use Cloud, GitHub, Stripe, Neon and Supabase. Servers that need a key ask for it and encrypt it. The connection is tested right away. GitHub, Slack, Notion, Linear, Jira, email and REST connectors are still on the **Connectors** page.
+- **Knowledge:** reference lists that are not skills (for example awesome-harness-engineering) can be added to a project's knowledge, where agents search them.
+
+Notes:
+- "Anthropic-Cybersecurity-Skills" is a **community** project, not published by Anthropic. The catalog says so.
+- MCP servers that only support OAuth sign-in, and servers on a private network (such as a local agentmemory), are not supported yet. Put a local server on a public HTTPS URL and add it as a custom MCP connector.
+- Installing a pack downloads files straight from GitHub, which has no API limit. Searching a repo uses GitHub's API (60 requests an hour without a token). Set `GITHUB_TOKEN` in `backend/.env` to raise that to 5,000.
+- Project-level skills share the prompt budget. If many large skills are attached, the first ~30,000 characters are loaded and the rest are listed by name for the agent to load with `use_skill`.
+
+### Find Skills
+
+`find_skills` and `use_skill` let an agent discover a skill and apply it to the current task. `find_skills` searches your installed skills, the curated catalog and the skills.sh registry. `use_skill` loads the best match for this run only: nothing is installed, and third-party text is labelled as such. Keeping a skill permanently is a deliberate action on the Discover page. They are on by default; switch them off per project under **Tools & connectors → Agent tools**. The built-in **Find Skills** skill (`/find-skills <need>`) teaches the playbook. It is adapted from the `find-skills` skill in `vercel-labs/skills`, which tells agents to run `npx` and so cannot work here.
+
+## Tasks and the AI scheduler
+
+**Tasks** (sidebar → Operate):
+- Add a task by typing, or use **Text to tasks** on pasted text. In chat, the checklist button under an answer turns that reply into tasks. You review and edit what was found before anything is saved. Near-duplicates of open tasks are skipped.
+- With a real model, extraction is done by the AI. With the offline mock model it falls back to rules (checklists, "Next steps" lists, imperative bullets, "need to / should" sentences).
+- Every task carries **context** (what you typed plus the source text). **Run with agent** hands the task and its context to an agent.
+- Agents in a project get `create_tasks`, `list_tasks` and `update_task`, on by default and switchable per project.
+
+**Scheduler with AI** (Automations → New automation → *Describe it in plain English*): you get the schedule, the next three run times and a task description, all editable. The model only extracts the task and the phrase. The schedule itself is built and checked by a deterministic parser, so a made-up cron expression can never reach the scheduler. Phrases like "every weekday at 9am", "every monday and friday at 5:30pm", "every 2 hours" and "monthly on the 15th" work offline too. Only recurring schedules are supported. With **Scheduling** switched on for a project (off by default), an agent can create a recurring automation when you ask for one in chat. Runs started by a schedule or webhook cannot create new schedules, and agents can create at most 25 per project.
+
 ## More features
 
 - **⌘K / Ctrl+K command palette:** jump to any page, start a chat with any agent or team, open workflows and skills, switch project, or create something new.
@@ -112,12 +144,14 @@ Commands are handled on the server, so they work everywhere: chat, `POST /api/ru
 ./startup.sh test
 ```
 
-There are 33 end-to-end tests. They cover:
+There are 101 end-to-end tests. They cover:
 - web search, context injection, knowledge and memory
 - all 5 team styles, workflows with branching, chat, SSE and webhooks
 - the scheduler, connectors and SSRF blocking
 - tenant isolation, RBAC, API keys, brute-force lockout and input limits
 - slash commands and templates, conversation skills, feedback, re-run, export/import between tenants, and the database auto-upgrade
+- the Discover catalog, skill and MCP installs at project level, `find_skills` / `use_skill`, the skill prompt budget, and the GitHub token only going to `api.github.com`
+- tasks (text to task, chat replies, context, running a task with an agent), the agent task tools, and the plain-English scheduler including rejection of invalid model output
 
 ## Using the API
 
@@ -146,7 +180,7 @@ When an agent runs, its system prompt is built in this order:
 2. The operating context: org name, project name and today's date.
 3. **Organization guidelines**, set in Settings → General.
 4. **Project brief**: description, context and variables.
-5. **Skills**: the instruction packs attached to the agent.
+5. **Skills**: the agent's own, then the project's (every agent in the project gets these), then any chosen for this chat or command.
 6. **Pinned documents** from the agent, the project and the org.
 7. **Long-term memory**: recent project memory, plus agent memory if enabled.
 8. Rules for tool use and safety, including that tool output is untrusted data.
@@ -154,8 +188,8 @@ When an agent runs, its system prompt is built in this order:
 The agent's tools are the union of:
 - its own tools and the tools bundled with its skills
 - the project's shared tools
-- capability tools (browser, memory, knowledge)
-- tools from connections attached to the agent or the project
+- capability tools (browser, memory, knowledge, to-dos, find/use skills, and scheduling when enabled)
+- tools from connections attached to the agent or the project, including MCP servers installed from Discover
 
 Project policy is then applied, for example turning off web access or blocking specific tools.
 

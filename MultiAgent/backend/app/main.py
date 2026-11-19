@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .api import auth, automations, chat, connectors, dashboard, knowledge, library, orgs, projects, runs, training, transfer
+from .api import auth, automations, chat, connectors, dashboard, hub, knowledge, library, orgs, projects, runs, tasks, training, transfer
 from .config import BASE_DIR, settings
 from .db import init_db
 from .engine import runs as run_engine
@@ -88,7 +88,7 @@ async def health():
     return {"status": "ok", "app": settings.app_name}
 
 
-for r in [auth.router, orgs.router, projects.router, *library.ROUTERS, connectors.router, knowledge.router, runs.router, runs.hooks_router, chat.router, automations.router, dashboard.router, training.router, transfer.router]:
+for r in [auth.router, orgs.router, projects.router, *library.ROUTERS, connectors.router, knowledge.router, runs.router, runs.hooks_router, chat.router, automations.router, dashboard.router, training.router, transfer.router, tasks.router, hub.router]:
     app.include_router(r, prefix="/api")
 
 

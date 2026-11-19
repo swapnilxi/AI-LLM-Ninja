@@ -1,0 +1,39 @@
+{
+  "mcpServers": {
+    "browser-use-cloud": {
+      "type": "http",
+      "url": "https://api.browser-use.com/v3/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BROWSER_USE_API_KEY}"
+      }
+    },
+    "github-mcp": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_MCP_TOKEN}"
+      }
+    },
+    "stripe": {
+      "type": "http",
+      "url": "https://mcp.stripe.com",
+      "headers": {
+        "Authorization": "Bearer ${STRIPE_API_KEY}"
+      }
+    },
+    "neon": {
+      "type": "http",
+      "url": "https://mcp.neon.tech/mcp",
+      "headers": {
+        "Authorization": "Bearer ${NEON_API_KEY}"
+      }
+    },
+    "supabase": {
+      "type": "http",
+      "url": "https://mcp.supabase.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SUPABASE_ACCESS_TOKEN}"
+      }
+    }
+  }
+}

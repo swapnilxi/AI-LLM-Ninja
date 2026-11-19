@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { http, qs } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Agent, Automation, Catalog, Connection, Connector, Doc, Lesson, Memory, ProviderInfo, Run, Skill, SkillCommand, SkillTemplate, Team, Tool, TrainingOverview, Workflow } from "@/lib/types";
+import type { Agent, Automation, Catalog, Connection, Connector, Doc, HubCatalog, Lesson, Memory, ProviderInfo, Run, Skill, SkillCommand, SkillTemplate, Task, Team, Tool, TrainingOverview, Workflow } from "@/lib/types";
 import { errMsg } from "@/lib/utils";
 
 export const useAgents = () => useQuery({ queryKey: ["agents"], queryFn: () => http.get<Agent[]>("/agents") });
@@ -40,6 +40,13 @@ export const useRuns = (params: Record<string, string | number | undefined> = {}
 
 export const useAutomations = (projectId?: string | null) =>
   useQuery({ queryKey: ["automations", projectId], queryFn: () => http.get<Automation[]>(`/automations${qs({ project_id: projectId ?? undefined })}`) });
+
+export const useTasks = (projectId?: string | null) =>
+  useQuery({ queryKey: ["tasks", projectId], queryFn: () => http.get<Task[]>(`/tasks${qs({ project_id: projectId ?? undefined })}`), enabled: !!projectId });
+
+/** Discover catalog (skill packs, MCP servers, knowledge docs) with install state for the given project. */
+export const useHub = (projectId?: string | null) =>
+  useQuery({ queryKey: ["hub", projectId], queryFn: () => http.get<HubCatalog>(`/hub${qs({ project_id: projectId ?? undefined })}`), enabled: !!projectId });
 
 /** Generic mutation with toast + invalidation. */
 export function useAction<TVars = void, TRes = any>(fn: (v: TVars) => Promise<TRes>, opts: { success?: string; invalidate?: unknown[][]; onSuccess?: (r: TRes, v: TVars) => void } = {}) {

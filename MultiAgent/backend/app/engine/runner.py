@@ -23,6 +23,7 @@ from .tools.base import UNTRUSTED_HEADER, RuntimeTool, ToolResult, validate_args
 from .tools.registry import build_toolset
 
 log = logging.getLogger("agentforge.runner")
+SKILLS_PROMPT_BUDGET = 30000  # characters of skill text injected per run; the rest is listed and loaded on demand
 
 
 @dataclass
@@ -33,8 +34,11 @@ class AgentResult:
     messages: list[dict[str, Any]] = field(default_factory=list)
 
 
-async def load_skills(session: AsyncSession, agent: Agent, org_id: str, extra: list[str] | None = None) -> list[Skill]:
-    ids = list(dict.fromkeys([*(agent.skill_ids or []), *(extra or [])]))
+async def load_skills(
+    session: AsyncSession, agent: Agent, org_id: str, extra: list[str] | None = None, project_skill_ids: list[str] | None = None
+) -> list[Skill]:
+    """Skills for a run: the agent's own, then project-level skills (every agent in the project), then per-chat/command ones."""
+    ids = list(dict.fromkeys([*(agent.skill_ids or []), *(project_skill_ids or []), *(extra or [])]))
     if not ids:
         return []
     rows = (await session.execute(select(Skill).where(Skill.id.in_(ids), visible(Skill, org_id)))).scalars().all()
@@ -69,8 +73,18 @@ async def build_system_prompt(
             parts.append("Project variables:\n" + "\n".join(f"- {k}: {v}" for k, v in list(project.variables.items())[:50]))
     if skills:
         parts += ["", "## Skills"]
+        budget, deferred = SKILLS_PROMPT_BUDGET, []
         for s in skills:
-            parts += [f"### Skill: {s.name}", (s.instructions or s.description).strip()[:8000]]
+            body = (s.instructions or s.description).strip()[:8000]
+            if len(body) > budget:  # progressive disclosure: too many/large skills would flood every prompt
+                deferred.append(s)
+                continue
+            budget -= len(body)
+            parts += [f"### Skill: {s.name}", body]
+        if deferred:
+            how = "Load one with use_skill (pass its id) when it is relevant." if any(t.name == "use_skill" for t in tools) else "Ask the user to enable only the skills they need."
+            parts += ["### More skills available (not loaded, to save context)", how]
+            parts += [f"- {s.name} (id={s.id}): {(s.description or '').strip()[:140]}" for s in deferred]
 
     owners = knowledge.owners_for(org.id, project.id, agent.id)
     pinned = await knowledge.pinned_documents(session, org.id, owners)
@@ -117,6 +131,12 @@ async def build_system_prompt(
         rules.append("- Documents are attached to you/this project: consult knowledge_search before answering questions about them.")
     if "memory" in names:
         rules.append("- Save durable facts, decisions and user preferences with the memory tool; do not store secrets.")
+    if "find_skills" in names:
+        rules.append("- If a task needs specialised expertise you lack, or the user asks for a skill, call find_skills then use_skill and follow what it says. Loaded skills apply to this run only.")
+    if "create_tasks" in names:
+        rules.append("- Use create_tasks only when the user asks you to track, remember or list to-dos/action items; never create tasks unprompted.")
+    if "schedule_task" in names:
+        rules.append("- Use schedule_task only when the user explicitly asks for something to run repeatedly; tell them the exact schedule you created.")
     parts += rules
     if extra:
         parts += ["", extra.strip()]
@@ -177,7 +197,7 @@ async def run_agent(
     ctx.current_agent_id = agent.id
     name = label or agent.name
     async with SessionLocal() as session:
-        skills = await load_skills(session, agent, ctx.org.id, ctx.extra_skill_ids)
+        skills = await load_skills(session, agent, ctx.org.id, ctx.extra_skill_ids, ctx.project.settings.get("skill_ids"))
         provider_key, model = await resolve_model(session, ctx.org, agent.provider, agent.model)
         provider = await get_provider(session, ctx.org, provider_key)
         tools = await build_toolset(session, ctx, agent, skills, extra_tools)

@@ -23,6 +23,7 @@ from ...db import SessionLocal
 from ...models import Document, Memory
 from .. import knowledge
 from ..net import BlockedURL, safe_request, validate_url
+from . import productivity, skills_tools
 from .base import RuntimeTool, ToolResult, schema
 
 if TYPE_CHECKING:
@@ -419,6 +420,8 @@ HANDLERS = {
     "knowledge_search": knowledge_search,
     "read_document": read_document,
     "memory": memory,
+    **productivity.HANDLERS,
+    **skills_tools.HANDLERS,
 }
 
 BUILTINS: dict[str, BuiltinDef] = {
@@ -523,6 +526,90 @@ BUILTINS: dict[str, BuiltinDef] = {
                 ["action"],
             ),
             "memory",
+        ),
+        BuiltinDef(
+            "create_tasks",
+            "Create Tasks",
+            "Turn text into tracked to-dos for this project (text to task). Use ONLY when the user asks you to track, remember or list action items - never unprompted. "
+            "Put each separate action in its own item; add `context` with the background someone needs to do it.",
+            schema(
+                {
+                    "tasks": {
+                        "type": "array",
+                        "description": "Tasks to create",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "description": "Imperative, <= 12 words"},
+                                "notes": {"type": "string"},
+                                "priority": {"type": "string", "enum": ["low", "normal", "high"]},
+                                "due": {"type": "string", "description": "YYYY-MM-DD or a phrase like 'by friday'"},
+                                "context": {"type": "string", "description": "Background needed to do this task"},
+                            },
+                            "required": ["title"],
+                        },
+                    },
+                    "context": {"type": "string", "description": "Background shared by every task in this call"},
+                },
+                ["tasks"],
+            ),
+            "productivity",
+        ),
+        BuiltinDef(
+            "list_tasks",
+            "List Tasks",
+            "List this project's to-dos. status: open (default, not done), todo, doing, done or all.",
+            schema({"status": {"type": "string", "enum": ["open", "todo", "doing", "done", "all"]}, "limit": {"type": "integer"}}),
+            "productivity",
+        ),
+        BuiltinDef(
+            "update_task",
+            "Update Task",
+            "Change a to-do by id (from list_tasks / create_tasks): set status todo|doing|done, or edit title, notes, priority, due date.",
+            schema(
+                {
+                    "task_id": {"type": "string"},
+                    "status": {"type": "string", "enum": ["todo", "doing", "done"]},
+                    "title": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "priority": {"type": "string", "enum": ["low", "normal", "high"]},
+                    "due": {"type": "string"},
+                },
+                ["task_id"],
+            ),
+            "productivity",
+        ),
+        BuiltinDef(
+            "schedule_task",
+            "Schedule Task",
+            "Create a RECURRING automation that runs `task` as this agent on a schedule. Use only when the user explicitly asks for something to run repeatedly "
+            "(e.g. 'every weekday at 9am'); confirm the schedule back to them. One-time reminders are not supported.",
+            schema(
+                {
+                    "when": {"type": "string", "description": "Recurring schedule in plain English, e.g. 'every weekday at 9am', 'every 2 hours', 'monthly on the 1st'"},
+                    "task": {"type": "string", "description": "What the agent should do on every run"},
+                    "name": {"type": "string", "description": "Short name for the automation"},
+                    "timezone": {"type": "string", "description": "IANA timezone, e.g. Asia/Kolkata (defaults to the project timezone or UTC)"},
+                },
+                ["when", "task"],
+            ),
+            "productivity",
+        ),
+        BuiltinDef(
+            "find_skills",
+            "Find Skills",
+            "Search for a skill that helps with the current task: skills already installed, the curated catalog and the public skills.sh registry (most-installed first). "
+            "Call this when the task needs specialised expertise you lack or the user asks 'is there a skill for X'. Then call use_skill with the best match.",
+            schema({"query": {"type": "string", "description": "What you need help with, e.g. 'react performance' or 'pdf forms'"}, "limit": {"type": "integer", "description": "Max registry results (1-15)"}}, ["query"]),
+            "skills",
+        ),
+        BuiltinDef(
+            "use_skill",
+            "Use Skill",
+            "Load a skill's instructions into this conversation and apply them to the task. `skill` is an installed skill's id or name, or a registry ref 'owner/repo@skill-name' from find_skills. "
+            "Loaded for this run only; nothing is installed.",
+            schema({"skill": {"type": "string", "description": "Installed skill id/name, or owner/repo@skill-name"}}, ["skill"]),
+            "skills",
         ),
     ]
 }

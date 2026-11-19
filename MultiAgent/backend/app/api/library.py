@@ -237,14 +237,18 @@ async def install_preview(body: SkillInstall, ctx: OrgContext = Depends(require_
     return {"source": src.label, "ref": src.ref, "items": items}
 
 
-@skills_router.post("/install")
-async def install_skills(body: SkillInstall, request: Request, ctx: OrgContext = Depends(require_role("member")), session: AsyncSession = Depends(get_session)):
-    """Install the skills named by an `npx skills add …` command. Re-installing a skill updates it."""
+async def install_from_command(
+    session: AsyncSession, ctx: OrgContext, request: Request, command: str, paths: list[str] | None = None, extra_tags: list[str] | None = None
+) -> dict[str, Any]:
+    """Install the skills named by an `npx skills add ...` command (instructions only, nothing is executed).
+
+    Re-installing a skill updates it. Raises HTTPException(400) for user-facing problems. Shared with the Discover hub.
+    """
     try:
-        src = skill_install.parse_command(body.command)
-        items = await skill_install.list_skills(src)
-        if body.paths:
-            items = [i for i in items if i["path"] in set(body.paths)]
+        src = skill_install.parse_command(command)
+        items = skill_install.items_from_paths(src, paths) if paths else await skill_install.list_skills(src)
+        seen: set[str] = set()  # repos sometimes ship the same skill in several folders; keep the first
+        items = [i for i in items if not (i["name"].lower() in seen or seen.add(i["name"].lower()))]
         if not items:
             raise skill_install.InstallError("Nothing selected to install.")
         if len(items) > skill_install.MAX_SKILLS_PER_INSTALL:
@@ -258,7 +262,7 @@ async def install_skills(body: SkillInstall, request: Request, ctx: OrgContext =
         name, desc, instructions = parse_skill_md(text, item["name"])
         name = name[:120]
         existing = (await session.execute(select(Skill).where(Skill.org_id == ctx.org_id, Skill.name == name))).scalars().first()
-        tags = ["installed", f"src:{src.label}"[:40]]
+        tags = ["installed", f"src:{src.label}"[:40], *(extra_tags or [])]
         if existing:
             existing.description, existing.instructions = desc[:4000], instructions[:50000]
             existing.tags = list(dict.fromkeys([*(existing.tags or []), *tags]))
@@ -275,6 +279,12 @@ async def install_skills(body: SkillInstall, request: Request, ctx: OrgContext =
     await audit(session, action="skill.install", org_id=ctx.org_id, user_id=ctx.user.id, request=request, target_type="skill", target_id=src.label, commit=False)
     await session.commit()
     return {"source": src.label, "results": results}
+
+
+@skills_router.post("/install")
+async def install_skills(body: SkillInstall, request: Request, ctx: OrgContext = Depends(require_role("member")), session: AsyncSession = Depends(get_session)):
+    """Install the skills named by an `npx skills add ...` command. Re-installing a skill updates it."""
+    return await install_from_command(session, ctx, request, body.command, body.paths)
 
 
 # ============================================================================ tools

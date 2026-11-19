@@ -1,7 +1,7 @@
 """Assemble the effective toolset for an agent run.
 
 Effective tools = agent tools ∪ skill tools ∪ project shared tools
-                ∪ capability tools (browser / memory / knowledge)
+                ∪ capability tools (browser / memory / knowledge / tasks / scheduling)
                 ∪ connector tools (agent connections ∪ project connections)
                 ∪ runtime extras (e.g. supervisor delegation)
                 − tools blocked by project policy
@@ -71,6 +71,13 @@ async def build_toolset(
         tools += [BUILTINS["web_search"].runtime(), BUILTINS["browse_webpage"].runtime()]
     if a_set.get("memory_enabled") and p_set.get("memory_enabled", True) is not False:
         tools.append(BUILTINS["memory"].runtime())
+    # project-level productivity tools: to-dos on by default, scheduling is opt-in (it creates automations)
+    if p_set.get("tasks_enabled", True) is not False:
+        tools += [BUILTINS[k].runtime() for k in ("create_tasks", "list_tasks", "update_task")]
+    if p_set.get("skill_discovery_enabled", True) is not False:  # find a skill, then use it
+        tools += [BUILTINS[k].runtime() for k in ("find_skills", "use_skill")]
+    if p_set.get("scheduling_enabled") is True:
+        tools.append(BUILTINS["schedule_task"].runtime())
     if a_set.get("knowledge_enabled", True):
         owners = knowledge.owners_for(ctx.org.id, ctx.project.id, agent.id)
         if await knowledge.has_documents(session, ctx.org.id, owners):

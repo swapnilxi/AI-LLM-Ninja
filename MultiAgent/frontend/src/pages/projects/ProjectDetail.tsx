@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Archive, ArchiveRestore, Check, FolderKanban, Globe, Save, ShieldCheck, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Compass, FolderKanban, Globe, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { http } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Project, ProjectSettings } from "@/lib/types";
-import { useAction, useAgents, useConnections, useTools } from "@/hooks/useData";
+import { useAction, useAgents, useConnections, useSkills, useTools } from "@/hooks/useData";
 import { Page, PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, CardHeader, Field, Input, PageLoader, Select, Switch, Tabs, Textarea } from "@/components/ui/primitives";
 import { KeyValueEditor, MultiSelect, TagInput } from "@/components/ui/inputs";
@@ -30,7 +30,7 @@ const toForm = (p: Project): Form => ({
   description: p.description,
   context: p.context,
   variables: p.variables ?? {},
-  settings: { web_access: true, memory_enabled: true, ...(p.settings ?? {}) },
+  settings: { web_access: true, memory_enabled: true, tasks_enabled: true, skill_discovery_enabled: true, ...(p.settings ?? {}) },
 });
 
 export default function ProjectDetail() {
@@ -40,6 +40,7 @@ export default function ProjectDetail() {
   const project = useQuery({ queryKey: ["project", id], queryFn: () => http.get<Project>(`/projects/${id}`), enabled: !!id });
   const tools = useTools();
   const connections = useConnections();
+  const skills = useSkills();
   const agents = useAgents();
   const [tab, setTab] = useState<Tab>("overview");
   const [form, setForm] = useState<Form | null>(null);
@@ -69,6 +70,10 @@ export default function ProjectDetail() {
           blocked_tools: s.blocked_tools ?? [],
           shared_tool_ids: s.shared_tool_ids ?? [],
           connection_ids: s.connection_ids ?? [],
+          skill_ids: s.skill_ids ?? [],
+          tasks_enabled: s.tasks_enabled !== false,
+          skill_discovery_enabled: s.skill_discovery_enabled !== false,
+          scheduling_enabled: !!s.scheduling_enabled,
           default_agent_id: s.default_agent_id ?? "",
         },
       });
@@ -155,6 +160,7 @@ export default function ProjectDetail() {
 
       {tab === "tools" && (
         <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-5">
           <Card>
             <CardHeader title="Shared tools" description="Given to every agent that runs in this project, in addition to its own tools." />
             <div className="p-3">
@@ -165,6 +171,23 @@ export default function ProjectDetail() {
               />
             </div>
           </Card>
+          <Card>
+            <CardHeader
+              title="Skills"
+              description="Project-level: every agent running in this project follows these, on top of its own skills."
+              actions={<Link to="/discover" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"><Compass className="size-3.5" /> Discover</Link>}
+            />
+            <div className="p-3">
+              <MultiSelect
+                options={(skills.data ?? []).map((sk) => ({ value: sk.id, label: sk.name, description: sk.description, badge: sk.org_id === null ? "global" : undefined }))}
+                value={s.skill_ids ?? []}
+                onChange={(v) => !readOnly && setS("skill_ids", v)}
+                emptyText="No skills yet - install some from Discover"
+              />
+              {(s.skill_ids?.length ?? 0) > 8 && <p className="mt-2 text-xs text-muted">Many skills attached: the largest are listed by name only and loaded on demand, to keep prompts small.</p>}
+            </div>
+          </Card>
+          </div>
           <div className="space-y-5">
             <Card>
               <CardHeader title="App connectors" description="Connections whose tools every agent in this project can use." />
@@ -186,6 +209,14 @@ export default function ProjectDetail() {
                   ))}
                 </Select>
               </Field>
+            </Card>
+            <Card>
+              <CardHeader title="Agent tools" description="Built-in abilities every agent in this project can use. To remove one for good, add its name to Blocked tools under Policies." />
+              <div className="space-y-3 p-4">
+                <Switch disabled={readOnly} checked={s.tasks_enabled !== false} onChange={(v) => setS("tasks_enabled", v)} label="To-do tools" description="create_tasks, list_tasks, update_task: agents can turn text into tasks on the Tasks page." />
+                <Switch disabled={readOnly} checked={s.skill_discovery_enabled !== false} onChange={(v) => setS("skill_discovery_enabled", v)} label="Find and use skills" description="find_skills and use_skill: agents search installed skills and the skills.sh registry, then load one for the task. Nothing is installed." />
+                <Switch disabled={readOnly} checked={!!s.scheduling_enabled} onChange={(v) => setS("scheduling_enabled", v)} label="Scheduling" description="schedule_task: agents can create recurring automations when you ask (for example “every weekday at 9am”). Off by default because it creates automations." />
+              </div>
             </Card>
           </div>
         </div>

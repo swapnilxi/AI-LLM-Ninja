@@ -14,6 +14,8 @@ const SkillEditor = lazy(() => import("@/pages/skills/SkillEditor"));
 const ToolsList = lazy(() => import("@/pages/tools/ToolsList"));
 const ToolEditor = lazy(() => import("@/pages/tools/ToolEditor"));
 const Connectors = lazy(() => import("@/pages/connectors/Connectors"));
+const Discover = lazy(() => import("@/pages/discover/Discover"));
+const Tasks = lazy(() => import("@/pages/tasks/Tasks"));
 const TeamsList = lazy(() => import("@/pages/teams/TeamsList"));
 const TeamEditor = lazy(() => import("@/pages/teams/TeamEditor"));
 const WorkflowsList = lazy(() => import("@/pages/workflows/WorkflowsList"));
@@ -59,6 +61,8 @@ export default function App() {
                 <Route path="tools" element={<ToolsList />} />
                 <Route path="tools/:id" element={<ToolEditor />} />
                 <Route path="connectors" element={<Connectors />} />
+                <Route path="discover" element={<Discover />} />
+                <Route path="tasks" element={<Tasks />} />
                 <Route path="teams" element={<TeamsList />} />
                 <Route path="teams/:id" element={<TeamEditor />} />
                 <Route path="workflows" element={<WorkflowsList />} />

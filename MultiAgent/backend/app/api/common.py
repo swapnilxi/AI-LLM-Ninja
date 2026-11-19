@@ -70,3 +70,20 @@ async def create_default_project(session: AsyncSession, org: Organization) -> Pr
     )
     session.add(p)
     return p
+
+
+async def pick_agent(session: AsyncSession, ctx: OrgContext, project: Project, agent_id: str | None = None) -> Agent:
+    """Agent to run something with: the requested one, else the project's default, else the org's first agent, else a global one."""
+    for candidate in (agent_id, (project.settings or {}).get("default_agent_id")):
+        if candidate:
+            ok = await filter_visible_ids(session, Agent, [candidate], ctx.org_id)
+            if ok:
+                return await session.get(Agent, ok[0])
+            if candidate == agent_id:
+                raise HTTPException(404, "Agent not found")
+    from ..deps import visible
+
+    row = (await session.execute(select(Agent).where(visible(Agent, ctx.org_id)).order_by(Agent.org_id.is_(None), Agent.created_at).limit(1))).scalars().first()
+    if not row:
+        raise HTTPException(400, "Create an agent first")
+    return row

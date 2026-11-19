@@ -6,12 +6,14 @@ SSRF-safe HTTP client, then stored as ordinary skills (instructions only: bundle
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import shlex
 from dataclasses import dataclass, field
 from urllib.parse import quote, urlparse
 
-from .net import BlockedURL, safe_request
+from ..config import settings
+from .net import BlockedURL, NetPolicy, safe_request
 
 DEFAULT_REPO = "anthropics/skills"  # where a bare name like `pdf` is looked up
 MAX_SKILLS_PER_INSTALL = 20
@@ -129,26 +131,49 @@ def _parse_url(url: str, names: list[str]) -> Source:
     raise InstallError("Only GitHub sources are supported (owner/repo or a github.com URL).")
 
 
-async def _get(url: str, max_bytes: int):
-    try:
-        r = await safe_request("GET", url, headers={"accept": "application/vnd.github+json, text/plain"}, max_bytes=max_bytes, timeout=20)
-    except BlockedURL as exc:
-        raise InstallError(f"Blocked: {exc}")
-    except Exception as exc:
-        raise InstallError(f"Could not reach GitHub: {exc}")
-    return r
+async def _get(url: str, max_bytes: int, policy: NetPolicy | None = None):
+    last: Exception | None = None
+    headers = {"accept": "application/vnd.github+json, text/plain"}
+    if settings.github_token and url.startswith("https://api.github.com/"):  # never sent to any other host
+        headers["authorization"] = f"Bearer {settings.github_token}"
+    for attempt in range(2):  # GitHub occasionally drops a connection mid-response; one retry is enough
+        try:
+            return await safe_request("GET", url, headers=headers, max_bytes=max_bytes, timeout=20, policy=policy)
+        except BlockedURL as exc:
+            raise InstallError(f"Blocked: {exc}")
+        except Exception as exc:
+            last = exc
+            await asyncio.sleep(0.6)
+    raise InstallError(f"Could not reach GitHub: {type(last).__name__}{(': ' + str(last)) if str(last) else ''}")
 
 
-async def list_skills(src: Source) -> list[dict[str, str]]:
+def fuzzy_candidates(wanted: str, found: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Folders whose name is `wanted` with a vendor prefix added or removed (vercel-react-best-practices <-> react-best-practices)."""
+    w = wanted.lower()
+    return [f for f in found if f["name"].lower().endswith("-" + w) or w.endswith("-" + f["name"].lower())]
+
+
+def items_from_paths(src: Source, paths: list[str]) -> list[dict[str, str]]:
+    """Skills at known SKILL.md paths, without listing the repo (no GitHub API call, so no API rate limit)."""
+    items = []
+    for p in paths:
+        if not p.lower().endswith("skill.md") or p.startswith("/") or ".." in p.split("/") or len(p) > 300:
+            raise InstallError(f"Invalid skill path '{p[:60]}'.")
+        folder = p.rsplit("/", 1)[0] if "/" in p else ""
+        items.append({"path": p, "name": folder.rsplit("/", 1)[-1] if folder else src.repo})
+    return items
+
+
+async def list_skills(src: Source, policy: NetPolicy | None = None) -> list[dict[str, str]]:
     """Return [{path, name}] for every SKILL.md the command refers to."""
     if src.raw_path:
         return [{"path": src.raw_path, "name": src.raw_path.rsplit("/", 2)[-2] if "/" in src.raw_path else src.repo}]
     url = f"https://api.github.com/repos/{src.owner}/{src.repo}/git/trees/{quote(src.ref, safe='')}?recursive=1"
-    r = await _get(url, 8 * 1024 * 1024)
+    r = await _get(url, 8 * 1024 * 1024, policy)
     if r.status_code == 404:
         raise InstallError(f"Repository {src.label} was not found (or is private).")
     if r.status_code in (403, 429):
-        raise InstallError("GitHub rate limit reached. Try again in a few minutes.")
+        raise InstallError("GitHub rate limit reached. Try again in a few minutes (a server admin can set GITHUB_TOKEN to raise the limit).")
     if r.status_code >= 400:
         raise InstallError(f"GitHub returned HTTP {r.status_code}.")
     tree = r.json().get("tree", [])
@@ -167,6 +192,11 @@ async def list_skills(src: Source) -> list[dict[str, str]]:
         wanted = {n.lower() for n in src.names}
         picked = [f for f in found if f["name"].lower() in wanted]
         missing = wanted - {f["name"].lower() for f in picked}
+        for w in sorted(missing):  # registry ids can be a SKILL.md name that differs from the folder: accept one unambiguous match
+            cands = fuzzy_candidates(w, found)
+            if len(cands) == 1 and cands[0] not in picked:
+                picked.append(cands[0])
+                missing.discard(w)
         if missing and not picked:
             raise InstallError(f"No skill named {', '.join(sorted(missing))} in {src.label}. Available: {', '.join(sorted({f['name'] for f in found})[:15]) or 'none'}.")
         found = picked
@@ -175,9 +205,9 @@ async def list_skills(src: Source) -> list[dict[str, str]]:
     return sorted(found, key=lambda f: f["path"])[:200]
 
 
-async def fetch_skill(src: Source, path: str) -> str:
+async def fetch_skill(src: Source, path: str, policy: NetPolicy | None = None) -> str:
     url = f"https://raw.githubusercontent.com/{src.owner}/{src.repo}/{quote(src.ref, safe='')}/{quote(path)}"
-    r = await _get(url, MAX_FILE_BYTES + 1)
+    r = await _get(url, MAX_FILE_BYTES + 1, policy)
     if r.status_code >= 400:
         raise InstallError(f"Could not download {path} (HTTP {r.status_code}).")
     if len(r.content) > MAX_FILE_BYTES or r.truncated:
@@ -185,20 +215,41 @@ async def fetch_skill(src: Source, path: str) -> str:
     return r.text
 
 
+def _front_matter(front: str) -> dict[str, str]:
+    """Tiny YAML subset: `key: value`, plain multi-line values, and `>` / `|` block scalars (as used by many SKILL.md files)."""
+    out: dict[str, str] = {}
+    key: str | None = None
+    buf: list[str] = []
+    literal = False
+
+    def flush() -> None:
+        if key is not None:
+            joined = "\n".join(buf) if literal else " ".join(x for x in buf if x)
+            out[key.lower()] = joined.strip().strip("'\"")
+
+    for line in front.splitlines():
+        if key is not None and (line.startswith((" ", "\t")) or not line.strip()):
+            buf.append(line.strip())
+            continue
+        if ":" not in line:
+            continue
+        flush()
+        k, v = line.split(":", 1)
+        key, v = k.strip(), v.strip()
+        literal = v[:1] == "|"
+        buf = [] if v[:1] in (">", "|") else [v]
+    flush()
+    return out
+
+
 def parse_skill_md(text: str, fallback_name: str = "Imported skill") -> tuple[str, str, str]:
-    """(name, description, instructions) from a SKILL.md with optional YAML-ish front matter."""
+    """(name, description, instructions) from a SKILL.md with optional YAML front matter."""
     text = text.strip()
     name, desc, instructions = "", "", text
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", text, flags=re.S)
     if m:
-        front, instructions = m.group(1), m.group(2).strip()
-        for line in front.splitlines():
-            if ":" in line:
-                k, v = line.split(":", 1)
-                if k.strip().lower() == "name":
-                    name = v.strip().strip("'\"")
-                elif k.strip().lower() == "description":
-                    desc = v.strip().strip("'\"")
+        front, instructions = _front_matter(m.group(1)), m.group(2).strip()
+        name, desc = front.get("name", ""), front.get("description", "")
     if not name:
         h = re.search(r"^#\s+(.+)$", instructions, flags=re.M)
         name = h.group(1).strip() if h else fallback_name

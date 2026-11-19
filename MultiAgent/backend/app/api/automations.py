@@ -7,11 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..db import get_session
 from ..deps import OrgContext, audit, get_org_ctx, get_project, get_visible, require_role
+from ..engine import schedule_ai
 from ..engine.runs import TARGETS
 from ..engine.scheduler import compute_next_run, fire, validate_cron
 from ..models import Automation
-from ..schemas import AutomationIn, AutomationOut, AutomationUpdate
+from ..schemas import AutomationIn, AutomationOut, AutomationUpdate, ScheduleDraftIn
 from ..security import decrypt, encrypt, generate_webhook_token, sha256_hex
+from .common import pick_agent
 
 router = APIRouter(prefix="/automations", tags=["automations"])
 
@@ -71,6 +73,16 @@ async def create_automation(body: AutomationIn, request: Request, ctx: OrgContex
     await audit(session, action="automation.create", org_id=ctx.org_id, user_id=ctx.user.id, request=request, target_type="automation", target_id=a.id, commit=False)
     await session.commit()
     return _out(a)
+
+
+@router.post("/draft")
+async def draft_automation(body: ScheduleDraftIn, ctx: OrgContext = Depends(require_role("member")), session: AsyncSession = Depends(get_session)):
+    """Scheduler with AI: plain English -> a draft automation (nothing is saved; the UI pre-fills the form from this)."""
+    project = await get_project(session, body.project_id, ctx.org_id)
+    agent = await pick_agent(session, ctx, project, body.agent_id)
+    tz = body.timezone or (project.settings or {}).get("timezone") or "UTC"
+    out = await schedule_ai.draft(session, ctx.org, body.text, tz)
+    return {**out, "project_id": project.id, "target_type": "agent", "target_id": agent.id, "target_name": agent.name, "input": {"task": out["task"]}}
 
 
 @router.get("/{auto_id}", response_model=AutomationOut)

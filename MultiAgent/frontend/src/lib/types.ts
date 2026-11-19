@@ -54,6 +54,10 @@ export interface ProjectSettings {
   blocked_tools?: string[];
   default_agent_id?: string;
   timezone?: string;
+  skill_ids?: string[]; // project-level skills: every agent in the project gets them
+  tasks_enabled?: boolean; // to-do tools for agents (default on)
+  skill_discovery_enabled?: boolean; // find_skills / use_skill (default on)
+  scheduling_enabled?: boolean; // schedule_task: agents can create automations (default off)
 }
 
 export interface AgentSettings {
@@ -383,4 +387,119 @@ export interface TrainingOverview {
   approved: number;
   rejected: number;
   memories: number;
+}
+
+
+// ---------------------------------------------------------------- tasks (to-dos)
+export type TaskStatus = "todo" | "doing" | "done";
+export type TaskPriority = "low" | "normal" | "high";
+
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  notes: string;
+  context: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_at: string | null;
+  completed_at: string | null;
+  source: "manual" | "chat" | "agent" | "text";
+  conversation_id: string | null;
+  message_id: string | null;
+  run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskDraft {
+  title: string;
+  notes: string;
+  priority: TaskPriority;
+  due_at: string | null;
+}
+
+export interface TaskExtraction {
+  engine: "ai" | "rules";
+  context: string;
+  items: TaskDraft[];
+}
+
+// ---------------------------------------------------------------- AI scheduler
+export interface ScheduleDraft {
+  name: string;
+  task: string;
+  trigger_type: "schedule" | "interval" | "manual";
+  cron: string;
+  interval_minutes: number;
+  timezone: string;
+  summary: string;
+  next_runs: string[];
+  notes: string[];
+  engine: "ai" | "rules";
+  target_type: "agent";
+  target_id: string;
+  target_name: string;
+}
+
+// ---------------------------------------------------------------- discover hub
+export type Trust = "official" | "community" | "built-in";
+
+export interface HubSkillPack {
+  id: string;
+  name: string;
+  tagline: string;
+  description: string;
+  category: string;
+  trust: Trust;
+  repo_url: string;
+  command?: string;
+  caveat?: string;
+  skills: string[];
+  installed: boolean;
+  skill_ids: string[];
+  instruction_chars: number;
+  attached: boolean | null;
+}
+
+export interface HubMcpServer {
+  id: string;
+  name: string;
+  tagline: string;
+  category: string;
+  popular: boolean;
+  auth: "none" | "optional" | "bearer";
+  url: string;
+  docs_url: string;
+  token_label?: string;
+  token_url?: string;
+  caveat?: string;
+  connection_id: string | null;
+  status: string | null;
+  attached: boolean | null;
+}
+
+export interface HubKnowledge {
+  id: string;
+  name: string;
+  tagline: string;
+  description: string;
+  repo_url: string;
+  trust: Trust;
+  installed: boolean | null;
+}
+
+export interface HubCatalog {
+  skills: HubSkillPack[];
+  mcp: HubMcpServer[];
+  knowledge: HubKnowledge[];
+}
+
+export interface RegistrySkill {
+  source: string;
+  skill: string;
+  name: string;
+  installs: number;
+  ref: string;
+  installed: boolean;
 }

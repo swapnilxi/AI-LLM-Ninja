@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434/v1"
     tavily_api_key: str = ""
     brave_api_key: str = ""
+    github_token: str = ""  # optional: raises the GitHub API limit (60/h -> 5000/h) used when listing skills to install
 
     extra: dict = Field(default_factory=dict)
 

@@ -7,13 +7,14 @@ import { http } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Connection, Connector } from "@/lib/types";
 import { cn, errMsg, timeAgo } from "@/lib/utils";
-import { useAction, useConnections, useConnectorCatalog } from "@/hooks/useData";
+import { useAction, useConnections, useConnectorCatalog, useHub } from "@/hooks/useData";
 import { Page, PageHeader } from "@/components/layout/PageHeader";
 import { Badge, Button, Card, Checkbox, EmptyState, Field, Input, PageLoader, Spinner, Switch, Tabs, Textarea } from "@/components/ui/primitives";
 import { SearchInput } from "@/components/ui/inputs";
 import { ConfirmDialog, Dialog } from "@/components/ui/overlay";
 import { ConnectorIcon } from "@/components/ui/icons";
 import { Grid } from "@/components/library";
+import { McpServerGrid } from "@/components/hub/McpServers";
 
 type ToolRow = { action: string; tool_name: string; description: string; write: boolean; exposed: boolean };
 
@@ -24,7 +25,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function Connectors() {
-  const { can } = useAuth();
+  const { can, project, projectId } = useAuth();
+  const hub = useHub(projectId);
   const catalog = useConnectorCatalog();
   const connections = useConnections();
   const [tab, setTab] = useState<"connected" | "catalog">("connected");
@@ -112,6 +114,15 @@ export default function Connectors() {
         <PageLoader />
       ) : (
         <div className="space-y-7">
+          {!q && !!hub.data?.mcp.length && (
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Popular tools (MCP)</h2>
+                <Link to="/discover?tab=connectors" className="text-xs font-medium text-primary hover:underline">See all</Link>
+              </div>
+              <McpServerGrid servers={hub.data.mcp.filter((m) => m.popular)} projectId={projectId} projectName={project?.name} />
+            </section>
+          )}
           {categories.map((cat) => (
             <section key={cat}>
               <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-muted">{cat}</h2>

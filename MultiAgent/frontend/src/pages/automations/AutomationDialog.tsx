@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarClock, Hand, RefreshCw, Timer, Webhook } from "lucide-react";
+import { CalendarClock, Hand, RefreshCw, Sparkles, Timer, Webhook } from "lucide-react";
+import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
 import { http } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { Automation, TargetType } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import type { Automation, ScheduleDraft, TargetType } from "@/lib/types";
+import { cn, errMsg } from "@/lib/utils";
 import { useAction, useAgents, useTeams, useWorkflows } from "@/hooks/useData";
 import { Dialog } from "@/components/ui/overlay";
-import { Button, Checkbox, Field, Input, Select, Switch, Textarea } from "@/components/ui/primitives";
+import { Badge, Button, Checkbox, Field, Input, Select, Switch, Textarea } from "@/components/ui/primitives";
 import { CopyButton, JsonEditor } from "@/components/ui/inputs";
 
 type Trigger = Automation["trigger_type"];
@@ -101,12 +102,38 @@ export function AutomationDialog({ open, onClose, automation, onCreated }: { ope
   const workflows = useWorkflows();
   const [form, setForm] = useState<Form>(() => fromAutomation(automation));
   const [current, setCurrent] = useState<Automation | null>(automation);
+  const [aiText, setAiText] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [draft, setDraft] = useState<ScheduleDraft | null>(null);
   useEffect(() => {
     if (open) {
       setForm(fromAutomation(automation));
       setCurrent(automation);
+      setAiText("");
+      setDraft(null);
     }
   }, [open, automation]);
+
+  /** Scheduler with AI: plain English -> schedule + task. Fills the form; nothing is saved until you click Create. */
+  const draftWithAi = async () => {
+    setDrafting(true);
+    try {
+      const d = await http.post<ScheduleDraft>("/automations/draft", { project_id: projectId, text: aiText, timezone: form.timezone, agent_id: form.target_type === "agent" && form.target_id ? form.target_id : undefined });
+      setDraft(d);
+      setForm((f) => ({
+        ...f,
+        name: f.name.trim() ? f.name : d.name,
+        task: d.task,
+        advanced: false,
+        ...(d.trigger_type === "manual" ? {} : { trigger_type: d.trigger_type, cron: d.cron || f.cron, interval_minutes: d.interval_minutes || f.interval_minutes, timezone: d.timezone }),
+        ...(f.target_id ? {} : { target_type: "agent" as TargetType, target_id: d.target_id }),
+      }));
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setDrafting(false);
+    }
+  };
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const targets = useMemo(() => {
@@ -172,6 +199,43 @@ export function AutomationDialog({ open, onClose, automation, onCreated }: { ope
       }
     >
       <div className="space-y-5">
+        {!current && (
+          <div className="rounded-xl border border-indigo-500/20 bg-gradient-to-br from-primary-soft/50 to-transparent p-3.5">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="size-4 text-primary" /> Describe it in plain English
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={aiText}
+                onChange={(e) => setAiText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && aiText.trim().length >= 3 && !drafting && draftWithAi()}
+                placeholder="Every weekday at 9am summarise my open GitHub pull requests"
+                aria-label="Describe the automation in plain English"
+              />
+              <Button variant="outline" loading={drafting} disabled={aiText.trim().length < 3} onClick={draftWithAi} icon={<Sparkles className="size-4" />}>
+                Draft
+              </Button>
+            </div>
+            {draft && (
+              <div className="mt-3 space-y-1.5 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{draft.summary}</span>
+                  <Badge tone={draft.engine === "ai" ? "primary" : "muted"}>{draft.engine === "ai" ? "Drafted with AI" : "Drafted with rules"}</Badge>
+                </div>
+                {draft.next_runs.length > 0 && (
+                  <div className="text-xs text-muted">
+                    Next runs:{" "}
+                    {draft.next_runs.map((r) => new Date(r).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: draft.timezone })).join(" · ")}
+                  </div>
+                )}
+                {draft.notes.map((n) => (
+                  <div key={n} className={cn("text-xs", draft.trigger_type === "manual" ? "text-warning" : "text-muted")}>{n}</div>
+                ))}
+                <div className="text-xs text-muted">Review the details below, then create the automation.{draft.target_name ? ` It will run as ${draft.target_name} unless you change the target.` : ""}</div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Name">
             <Input autoFocus value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Daily market brief" />
