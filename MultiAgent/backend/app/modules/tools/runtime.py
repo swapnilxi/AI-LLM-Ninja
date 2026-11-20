@@ -5,14 +5,15 @@ import json
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from ...db import SessionLocal
-from ...models import Agent, Tool
-from ..net import BlockedURL, safe_request
-from ..templating import TemplateRenderError, render
-from .base import RuntimeTool, ToolResult, sanitize_name, schema
+from app.core.db import SessionLocal
+from app.engine.net import BlockedURL, safe_request
+from app.engine.templating import TemplateRenderError, render
+from app.engine.tools.base import RuntimeTool, ToolResult, sanitize_name, schema
+from app.modules.agents.models import Agent
+from app.modules.tools.models import Tool
 
 if TYPE_CHECKING:
-    from ..context import RunContext
+    from app.engine.context import RunContext
 
 
 def _extract_path(data: Any, path: str) -> Any:
@@ -98,8 +99,8 @@ def agent_tool(tool: Tool) -> RuntimeTool:
     target_id = (tool.config or {}).get("agent_id", "")
 
     async def handler(args: dict[str, Any], ctx: "RunContext") -> ToolResult:
-        from ...config import settings
-        from ..runner import run_agent
+        from app.core.config import settings
+        from app.modules.agents.runner import run_agent
 
         if ctx.depth >= settings.max_agent_depth:
             return ToolResult("Maximum agent nesting depth reached", True)

@@ -2,17 +2,17 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CircleX, Clock, Coins, Cpu, MessagesSquare, RotateCcw, Square, Timer, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Run } from "@/lib/types";
-import { duration, formatDate, formatNumber } from "@/lib/utils";
-import { useAction } from "@/hooks/useData";
-import { useRunStream } from "@/hooks/useRunStream";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, CardHeader, EmptyState, PageLoader } from "@/components/ui/primitives";
-import { CopyButton } from "@/components/ui/inputs";
-import { Markdown } from "@/components/ui/Markdown";
-import { RunStatusBadge, RunTimeline } from "@/components/run/RunTimeline";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Run } from "@/modules/runs/types";
+import { duration, formatDate, formatNumber } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useRunStream } from "@/modules/runs/useRunStream";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, CardHeader, EmptyState, PageLoader } from "@/shared/ui/primitives";
+import { CopyButton } from "@/shared/ui/inputs";
+import { Markdown } from "@/shared/ui/Markdown";
+import { RunStatusBadge, RunTimeline } from "@/modules/runs/RunTimeline";
 import { TARGET_META, TargetIcon } from "./common";
 
 function Meta({ icon, label, value }: { icon: ReactNode; label: string; value: ReactNode }) {
@@ -125,7 +125,7 @@ export default function RunDetail() {
             <div className="flex justify-between gap-2"><span>Created</span><span className="text-fg">{formatDate(run.created_at)}</span></div>
             <div className="flex justify-between gap-2"><span>Finished</span><span className="text-fg">{formatDate(run.finished_at)}</span></div>
             {run.automation_id && (
-              <div className="flex justify-between gap-2"><span>Automation</span><Link to="/automations" className="font-mono text-primary hover:underline">{run.automation_id}</Link></div>
+              <div className="flex justify-between gap-2"><span>Schedule</span><Link to={`/scheduler/${run.automation_id}`} className="font-mono text-primary hover:underline">{run.automation_id}</Link></div>
             )}
           </Card>
         </div>

@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
-from ..db import get_session
-from ..deps import OrgContext, audit, get_org_ctx, get_project, get_visible, require_role
-from ..engine import knowledge
-from ..engine.net import BlockedURL, safe_request
-from ..models import Agent, Document, Memory
-from ..schemas import DocumentFromUrl, DocumentFull, DocumentIn, DocumentOut, DocumentUpdate, MemoryIn, MemoryOut, MemoryUpdate
+from app.core.config import settings
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, get_org_ctx, get_project, get_visible, require_role
+from app.engine.net import BlockedURL, safe_request
+from app.modules.agents.models import Agent
+from app.modules.knowledge import service as knowledge
+from app.modules.knowledge.models import Document, Memory
+from app.modules.knowledge.schemas import DocumentFromUrl, DocumentFull, DocumentIn, DocumentOut, DocumentUpdate, MemoryIn, MemoryOut, MemoryUpdate
 
 router = APIRouter(tags=["knowledge"])
 MAX_DOCS_PER_OWNER = 500
@@ -124,14 +125,20 @@ async def search_documents(
     q: str = Query(..., min_length=1, max_length=500),
     project_id: str | None = None,
     agent_id: str | None = None,
+    top_k: int = Query(10, ge=1, le=50),
+    agent_only: bool = Query(False, description="Search only the agent's own documents (skip org/project knowledge)"),
     ctx: OrgContext = Depends(get_org_ctx),
     session: AsyncSession = Depends(get_session),
 ):
+    """Retrieve the chunks an agent would get from knowledge_search (used by the Training > Test playground)."""
     if project_id:
         await get_project(session, project_id, ctx.org_id)
     if agent_id:
         await get_visible(session, Agent, agent_id, ctx.org_id)
-    return await knowledge.search(session, ctx.org_id, knowledge.owners_for(ctx.org_id, project_id, agent_id), q, 10)
+    if agent_only and not agent_id:
+        raise HTTPException(400, "agent_only requires agent_id")
+    owners = [("agent", agent_id)] if agent_only and agent_id else knowledge.owners_for(ctx.org_id, project_id, agent_id)
+    return await knowledge.search(session, ctx.org_id, owners, q, top_k)
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentFull)

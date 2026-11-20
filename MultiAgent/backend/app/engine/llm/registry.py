@@ -8,13 +8,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...config import settings
-from ...models import ProviderCredential
-from ...security import decrypt
-from .anthropic_provider import AnthropicProvider
-from .base import LLMError, LLMProvider
-from .mock_provider import MockProvider
-from .openai_provider import OpenAICompatProvider
+from app.core.config import settings
+from app.core.security import decrypt
+from app.engine.llm.anthropic_provider import AnthropicProvider
+from app.engine.llm.base import LLMError, LLMProvider
+from app.engine.llm.mock_provider import MockProvider
+from app.engine.llm.openai_provider import OpenAICompatProvider
+from app.modules.orgs.models import ProviderCredential
 
 PROVIDERS: dict[str, dict[str, Any]] = {
     "anthropic": {

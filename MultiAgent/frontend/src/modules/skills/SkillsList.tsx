@@ -2,17 +2,18 @@ import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Download, FileDown, LayoutTemplate, Plus, Slash, Sparkles, Terminal, Wrench } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Skill, SkillTemplate } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-import { useAction, useSkills, useSkillTemplates, useTools } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, Checkbox, EmptyState, Input, PageLoader, Tabs, Textarea } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { Dialog } from "@/components/ui/overlay";
-import { IconTile } from "@/components/ui/icons";
-import { Grid, ResourceCard, ScopeBadge } from "@/components/library";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Skill, SkillTemplate } from "@/modules/skills/types";
+import { timeAgo } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useSkills, useSkillTemplates } from "@/modules/skills/api";
+import { useTools } from "@/modules/tools/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, Checkbox, EmptyState, Input, PageLoader, Tabs, Textarea } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { IconTile } from "@/shared/ui/icons";
+import { Grid, ResourceCard, ScopeBadge } from "@/shared/components/library";
 
 export default function SkillsList() {
   const skills = useSkills();
@@ -23,8 +24,6 @@ export default function SkillsList() {
   const [params, setParams] = useSearchParams();
   const scope = (params.get("tab") as "all" | "org" | "global" | "templates") || "all";
   const setScope = (t: string) => setParams(t === "all" ? {} : { tab: t }, { replace: true });
-  const [importing, setImporting] = useState(false);
-  const [installing, setInstalling] = useState(false);
   const toolName = useMemo(() => Object.fromEntries((tools.data ?? []).map((t) => [t.id, t.display_name || t.name])), [tools.data]);
 
   const items = (skills.data ?? []).filter(
@@ -39,10 +38,10 @@ export default function SkillsList() {
         actions={
           can("member") && (
             <>
-              <Button variant="outline" icon={<Terminal className="size-4" />} onClick={() => setInstalling(true)}>
+              <Button variant="outline" icon={<Terminal className="size-4" />} onClick={() => nav("/skills/install")}>
                 Install
               </Button>
-              <Button variant="outline" icon={<FileDown className="size-4" />} onClick={() => setImporting(true)}>
+              <Button variant="outline" icon={<FileDown className="size-4" />} onClick={() => nav("/skills/import")}>
                 Import SKILL.md
               </Button>
               <Button icon={<Plus className="size-4" />} onClick={() => nav("/skills/new")}>
@@ -92,55 +91,48 @@ export default function SkillsList() {
           ))}
         </Grid>
       )}
-      <ImportSkillDialog open={importing} onClose={() => setImporting(false)} />
-      <InstallSkillDialog open={installing} onClose={() => setInstalling(false)} />
     </Page>
   );
 }
 
-function ImportSkillDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** /skills/import: paste a SKILL.md file. */
+export function ImportSkillPage() {
   const [md, setMd] = useState("---\nname: My skill\ndescription: What it does\n---\n\n# Instructions\n\n1. …");
   const nav = useNavigate();
   const imp = useAction(() => http.post<Skill>("/skills/import", { markdown: md }), {
     success: "Skill imported",
     invalidate: [["skills"]],
-    onSuccess: (s) => {
-      onClose();
-      nav(`/skills/${s.id}`);
-    },
+    onSuccess: (s) => nav(`/skills/${s.id}`, { replace: true }),
   });
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Import SKILL.md"
-      description="Paste a skill file with YAML front matter (name, description) followed by markdown instructions."
-      size="lg"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button loading={imp.isPending} onClick={() => imp.mutate()}>Import</Button>
-        </>
-      }
-    >
-      <Textarea mono rows={14} value={md} onChange={(e) => setMd(e.target.value)} />
-    </Dialog>
+    <Page className="max-w-3xl">
+      <PageHeader
+        back="/skills"
+        icon={<IconTile icon={FileDown} color="violet" />}
+        title="Import SKILL.md"
+        description="Paste a skill file with YAML front matter (name, description) followed by markdown instructions."
+      />
+      <Card>
+        <div className="p-4 sm:p-5">
+          <Textarea mono rows={18} autoFocus value={md} onChange={(e) => setMd(e.target.value)} aria-label="SKILL.md content" />
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+          <Button variant="outline" onClick={() => nav("/skills")}>Cancel</Button>
+          <Button loading={imp.isPending} disabled={!md.trim()} onClick={() => imp.mutate()}>Import</Button>
+        </div>
+      </Card>
+    </Page>
   );
 }
 
 type Candidate = { path: string; name: string };
 
-/** Paste `npx skills add owner/repo --skill name`: the server resolves it to SKILL.md files on GitHub (npx is never executed). */
-function InstallSkillDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** /skills/install: paste `npx skills add owner/repo --skill name`; the server resolves it to SKILL.md files on GitHub (npx is never executed). */
+export function InstallSkillPage() {
   const [cmd, setCmd] = useState("");
   const [found, setFound] = useState<{ source: string; items: Candidate[] } | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const nav = useNavigate();
-  const close = () => {
-    setFound(null);
-    setPicked([]);
-    onClose();
-  };
   const find = useAction(() => http.post<{ source: string; items: Candidate[] }>("/skills/install/preview", { command: cmd }), {
     onSuccess: (r) => {
       setFound(r);
@@ -152,62 +144,69 @@ function InstallSkillDialog({ open, onClose }: { open: boolean; onClose: () => v
     onSuccess: (r) => {
       const n = r.results.length;
       toast.success(n === 1 ? `${r.results[0].name} ${r.results[0].status}` : `${n} skills installed`);
-      close();
-      setCmd("");
-      if (n === 1) nav(`/skills/${r.results[0].id}`);
+      nav(n === 1 ? `/skills/${r.results[0].id}` : "/skills?tab=org", { replace: true });
     },
   });
   const toggle = (path: string) => setPicked((p) => (p.includes(path) ? p.filter((x) => x !== path) : [...p, path]));
   return (
-    <Dialog
-      open={open}
-      onClose={close}
-      title="Install skill"
-      description="Paste an install command. The skill's SKILL.md is downloaded from GitHub and added to your organization."
-      size="lg"
-      footer={
-        <>
-          <Button variant="outline" onClick={close}>Cancel</Button>
-          {found ? (
-            <Button icon={<Download className="size-4" />} disabled={!picked.length} loading={install.isPending} onClick={() => install.mutate()}>
-              Install {picked.length || ""} skill{picked.length === 1 ? "" : "s"}
-            </Button>
-          ) : (
-            <Button disabled={!cmd.trim()} loading={find.isPending} onClick={() => find.mutate()}>Find skills</Button>
-          )}
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <Input
-          className="font-mono"
-          autoFocus
-          value={cmd}
-          onChange={(e) => {
-            setCmd(e.target.value);
-            setFound(null);
+    <Page className="max-w-3xl">
+      <PageHeader
+        back="/skills"
+        icon={<IconTile icon={Terminal} color="violet" />}
+        title="Install skill"
+        description="Paste an install command. The skill's SKILL.md is downloaded from GitHub and added to your organization."
+      />
+      <Card>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (found) {
+              if (picked.length) install.mutate();
+            } else if (cmd.trim()) find.mutate();
           }}
-          onKeyDown={(e) => e.key === "Enter" && cmd.trim() && !found && find.mutate()}
-          placeholder="npx skills add anthropics/skills --skill pdf"
-        />
-        <p className="text-xs text-muted">
-          Accepts <code>npx skills add owner/repo</code>, <code>--skill name</code>, <code>owner/repo@name</code>, a GitHub URL, or just a name (looked up in anthropics/skills).
-          AgentForge never runs npx: only the instructions are installed, bundled scripts are ignored.
-        </p>
-        {found && (
-          <div className="rounded-lg border border-border">
-            <div className="border-b border-border px-3 py-2 text-xs text-muted">{found.items.length} skill{found.items.length === 1 ? "" : "s"} in {found.source}</div>
-            <ul className="max-h-64 divide-y divide-border overflow-y-auto">
-              {found.items.map((i) => (
-                <li key={i.path} className="px-3 py-2">
-                  <Checkbox checked={picked.includes(i.path)} onChange={() => toggle(i.path)} label={<span><span className="font-medium">{i.name}</span> <span className="font-mono text-xs text-muted">{i.path}</span></span>} />
-                </li>
-              ))}
-            </ul>
+        >
+          <div className="space-y-3 p-4 sm:p-5">
+            <Input
+              className="font-mono"
+              autoFocus
+              value={cmd}
+              onChange={(e) => {
+                setCmd(e.target.value);
+                setFound(null);
+              }}
+              placeholder="npx skills add anthropics/skills --skill pdf"
+              aria-label="Install command"
+            />
+            <p className="text-xs text-muted">
+              Accepts <code>npx skills add owner/repo</code>, <code>--skill name</code>, <code>owner/repo@name</code>, a GitHub URL, or just a name (looked up in anthropics/skills).
+              AgentForge never runs npx: only the instructions are installed, bundled scripts are ignored.
+            </p>
+            {found && (
+              <div className="rounded-lg border border-border">
+                <div className="border-b border-border px-3 py-2 text-xs text-muted">{found.items.length} skill{found.items.length === 1 ? "" : "s"} in {found.source}</div>
+                <ul className="max-h-80 divide-y divide-border overflow-y-auto">
+                  {found.items.map((i) => (
+                    <li key={i.path} className="px-3 py-2">
+                      <Checkbox checked={picked.includes(i.path)} onChange={() => toggle(i.path)} label={<span><span className="font-medium">{i.name}</span> <span className="font-mono text-xs text-muted">{i.path}</span></span>} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </Dialog>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+            <Button type="button" variant="outline" onClick={() => nav("/skills")}>Cancel</Button>
+            {found ? (
+              <Button type="submit" icon={<Download className="size-4" />} disabled={!picked.length} loading={install.isPending}>
+                Install {picked.length || ""} skill{picked.length === 1 ? "" : "s"}
+              </Button>
+            ) : (
+              <Button type="submit" disabled={!cmd.trim()} loading={find.isPending}>Find skills</Button>
+            )}
+          </div>
+        </form>
+      </Card>
+    </Page>
   );
 }
 

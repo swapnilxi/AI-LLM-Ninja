@@ -2,8 +2,8 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Building2, Globe } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Badge, Card } from "@/components/ui/primitives";
+import { cn } from "@/shared/lib/utils";
+import { Badge, Card } from "@/shared/ui/primitives";
 
 export function ScopeBadge({ orgId }: { orgId: string | null }) {
   return orgId === null ? (

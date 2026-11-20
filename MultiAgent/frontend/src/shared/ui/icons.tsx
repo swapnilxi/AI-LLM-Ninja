@@ -46,7 +46,7 @@ import {
   WandSparkles,
   Zap,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/utils";
 
 export const AGENT_ICONS: Record<string, LucideIcon> = {
   bot: Bot,

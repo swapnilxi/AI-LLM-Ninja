@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "@/lib/auth";
-import { errMsg } from "@/lib/utils";
-import { Button, Field, Input } from "@/components/ui/primitives";
+import { useAuth } from "@/shared/lib/auth";
+import { errMsg } from "@/shared/lib/utils";
+import { Button, Field, Input } from "@/shared/ui/primitives";
 import { AuthLayout } from "./AuthLayout";
 
 export default function Login() {

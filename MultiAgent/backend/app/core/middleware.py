@@ -9,8 +9,8 @@ import time
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from .config import settings
-from .ratelimit import limiter_backend
+from app.core.config import settings
+from app.core.ratelimit import limiter_backend
 
 log = logging.getLogger("agentforge.http")
 

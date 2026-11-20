@@ -13,19 +13,24 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, audit, get_org_ctx, get_project, require_role
-from ..engine import hub, skill_search
-from ..engine.connectors.registry import CONNECTORS, connection_config
-from ..engine.skill_install import InstallError
-from ..models import Connection, Document, Project, Skill
-from ..schemas import DocumentFromUrl, HubKnowledgeInstall, HubMcpInstall, HubSkillInstall
-from ..security import decrypt_json, encrypt_json
-from .connectors import _out as connection_out
-from .knowledge import document_from_url
-from .library import install_from_command
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, get_org_ctx, get_project, require_role
+from app.core.security import decrypt_json, encrypt_json
+from app.modules.connectors.models import Connection
+from app.modules.connectors.registry import CONNECTORS, connection_config
+from app.modules.connectors.router import _out as connection_out
+from app.modules.discover import catalog as hub
+from app.modules.discover.schemas import HubKnowledgeInstall, HubMcpInstall, HubSkillInstall
+from app.modules.knowledge.models import Document
+from app.modules.knowledge.router import document_from_url
+from app.modules.knowledge.schemas import DocumentFromUrl
+from app.modules.projects.models import Project
+from app.modules.skills import search as skill_search
+from app.modules.skills.install import InstallError
+from app.modules.skills.models import Skill
+from app.modules.skills.router import install_from_command
 
-router = APIRouter(prefix="/hub", tags=["hub"])
+router = APIRouter(prefix="/discover", tags=["discover"])
 MAX_PROJECT_SKILLS = 50
 
 

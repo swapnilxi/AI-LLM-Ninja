@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { CircleCheck, CircleX, Cpu, ExternalLink, KeyRound, Server, Trash2, Zap } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { ProviderInfo } from "@/lib/types";
-import { errMsg } from "@/lib/utils";
-import { useAction, useProviders } from "@/hooks/useData";
-import { Dialog } from "@/components/ui/overlay";
-import { Badge, Button, Card, Field, Input, PageLoader } from "@/components/ui/primitives";
-import { IconTile } from "@/components/ui/icons";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { ProviderInfo } from "@/modules/settings/types";
+import { errMsg } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useProviders } from "@/modules/settings/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, EmptyState, Field, Input, PageLoader } from "@/shared/ui/primitives";
+import { IconTile } from "@/shared/ui/icons";
 
 const COLOR: Record<string, string> = {
   anthropic: "amber", openai: "emerald", groq: "rose", gemini: "sky", openrouter: "violet", deepseek: "indigo", mistral: "amber", ollama: "slate", openai_compatible: "teal",
@@ -18,7 +19,7 @@ export function ModelsTab() {
   const providers = useProviders();
   const { can } = useAuth();
   const admin = can("admin");
-  const [editing, setEditing] = useState<ProviderInfo | null>(null);
+  const nav = useNavigate();
   const [testing, setTesting] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const remove = useAction((key: string) => http.del(`/org/providers/${key}`), { success: "Provider key removed", invalidate: [["providers"]] });
@@ -86,7 +87,7 @@ export function ModelsTab() {
               )}
               <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
                 {admin && (
-                  <Button size="sm" variant={p.configured ? "outline" : "primary"} icon={<KeyRound className="size-3.5" />} onClick={() => setEditing(p)}>
+                  <Button size="sm" variant={p.configured ? "outline" : "primary"} icon={<KeyRound className="size-3.5" />} onClick={() => nav(`/settings/models/${p.key}`)}>
                     {hasOrgConfig ? "Update" : p.needs_key ? "Add key" : "Configure"}
                   </Button>
                 )}
@@ -108,65 +109,72 @@ export function ModelsTab() {
           );
         })}
       </div>
-      <ProviderDialog provider={editing} onClose={() => setEditing(null)} />
     </div>
   );
 }
 
-function ProviderDialog({ provider, onClose }: { provider: ProviderInfo | null; onClose: () => void }) {
+/** /settings/models/:provider: set an org API key and/or base URL for one LLM provider. */
+export function ProviderPage() {
+  const { provider: key } = useParams();
+  const providers = useProviders();
+  const nav = useNavigate();
+  const provider = providers.data?.providers.find((p) => p.key === key) ?? null;
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    setApiKey("");
-    setBaseUrl(provider?.base_url ?? "");
-  }, [provider]);
+  const [baseUrl, setBaseUrl] = useState<string | null>(null);
+  const url = baseUrl ?? provider?.base_url ?? "";
+  const done = () => nav("/settings/models");
   const save = useAction(
     () => {
       const body: Record<string, string> = {};
       if (apiKey.trim()) body.api_key = apiKey.trim();
-      body.base_url = baseUrl.trim();
+      body.base_url = url.trim();
       return http.put(`/org/providers/${provider!.key}`, body);
     },
-    { success: "Provider saved", invalidate: [["providers"]] },
+    { success: "Provider saved", invalidate: [["providers"]], onSuccess: done },
   );
-  const open = !!provider;
-  const needsUrl = provider?.key === "openai_compatible";
-  const submit = async () => {
-    setBusy(true);
-    try {
-      await save.mutateAsync();
-      setApiKey("");
-      onClose();
-    } catch {
-      /* useAction already shows the error */
-    } finally {
-      setBusy(false);
-    }
-  };
+  if (providers.isLoading) return <PageLoader />;
+  if (!provider)
+    return (
+      <Page className="max-w-2xl">
+        <PageHeader back="/settings/models" title="Provider not found" />
+        <EmptyState icon={<Cpu className="size-5" />} title="Unknown provider" description={`There is no LLM provider called “${key}”.`} />
+      </Page>
+    );
+  const needsUrl = provider.key === "openai_compatible";
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title={provider ? `Configure ${provider.label}` : ""}
-      description="The key is encrypted with the server secret and only a masked preview is ever returned."
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button loading={busy} onClick={submit} disabled={needsUrl && !baseUrl.trim()}>Save</Button>
-        </>
-      }
-    >
-      {provider && (
-        <div className="space-y-4" key={provider.key}>
-          <Field label={provider.needs_key ? "API key" : "API key (optional)"} hint={provider.org_key ? `Current: ${provider.org_key}. Leave empty to keep it.` : undefined}>
-            <Input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={provider.key === "anthropic" ? "sk-ant-…" : "sk-…"} />
-          </Field>
-          <Field label={needsUrl ? "Base URL" : "Base URL (optional override)"} hint={provider.default_base_url ? `Default: ${provider.default_base_url}` : "OpenAI-compatible endpoint, e.g. https://api.together.xyz/v1"}>
-            <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={provider.default_base_url || "https://…/v1"} />
-          </Field>
-        </div>
-      )}
-    </Dialog>
+    <Page className="max-w-2xl">
+      <PageHeader
+        back="/settings/models"
+        icon={<IconTile icon={provider.key === "ollama" || provider.key === "openai_compatible" ? Server : Zap} color={COLOR[provider.key] ?? "indigo"} />}
+        title={`Configure ${provider.label}`}
+        description="The key is encrypted with the server secret and only a masked preview is ever returned."
+      />
+      <Card>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!(needsUrl && !url.trim())) save.mutate();
+          }}
+        >
+          <div className="space-y-4 p-4 sm:p-5">
+            <Field label={provider.needs_key ? "API key" : "API key (optional)"} hint={provider.org_key ? `Current: ${provider.org_key}. Leave empty to keep it.` : undefined}>
+              <Input autoFocus type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={provider.key === "anthropic" ? "sk-ant-…" : "sk-…"} />
+            </Field>
+            <Field label={needsUrl ? "Base URL" : "Base URL (optional override)"} hint={provider.default_base_url ? `Default: ${provider.default_base_url}` : "OpenAI-compatible endpoint, e.g. https://api.together.xyz/v1"}>
+              <Input value={url} onChange={(e) => setBaseUrl(e.target.value)} placeholder={provider.default_base_url || "https://…/v1"} />
+            </Field>
+            {provider.docs && (
+              <a href={provider.docs} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+                Where do I get a key? <ExternalLink className="size-3" />
+              </a>
+            )}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+            <Button type="button" variant="outline" onClick={done}>Cancel</Button>
+            <Button type="submit" loading={save.isPending} disabled={needsUrl && !url.trim()}>Save</Button>
+          </div>
+        </form>
+      </Card>
+    </Page>
   );
 }

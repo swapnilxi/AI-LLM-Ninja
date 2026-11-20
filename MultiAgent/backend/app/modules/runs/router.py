@@ -9,15 +9,16 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
-from ..db import SessionLocal, get_session
-from ..deps import OrgContext, get_org_ctx, get_project, require_role
-from ..engine import runs as run_engine
-from ..engine.events import TERMINAL, bus
-from ..models import Automation, Run, RunEvent
-from ..ratelimit import client_ip, enforce
-from ..schemas import RunCreate, RunEventOut, RunOut
-from ..security import sha256_hex
+from app.core.config import settings
+from app.core.db import SessionLocal, get_session
+from app.core.deps import OrgContext, get_org_ctx, get_project, require_role
+from app.core.ratelimit import client_ip, enforce
+from app.core.security import sha256_hex
+from app.modules.runs import service as run_engine
+from app.modules.runs.events import TERMINAL, bus
+from app.modules.runs.models import Run, RunEvent
+from app.modules.runs.schemas import RunCreate, RunEventOut, RunOut
+from app.modules.scheduler.models import Automation
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 hooks_router = APIRouter(prefix="/hooks", tags=["webhooks"])
@@ -37,13 +38,14 @@ async def list_runs(
     target_type: str | None = None,
     target_id: str | None = None,
     trigger: str | None = None,
+    automation_id: str | None = None,
     limit: int = Query(50, le=200),
     offset: int = 0,
     ctx: OrgContext = Depends(get_org_ctx),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     filt = [Run.org_id == ctx.org_id]
-    for col, val in ((Run.project_id, project_id), (Run.status, status), (Run.target_type, target_type), (Run.target_id, target_id), (Run.trigger, trigger)):
+    for col, val in ((Run.project_id, project_id), (Run.status, status), (Run.target_type, target_type), (Run.target_id, target_id), (Run.trigger, trigger), (Run.automation_id, automation_id)):
         if val:
             filt.append(col == val)
     total = (await session.execute(select(func.count()).select_from(Run).where(*filt))).scalar_one()
@@ -171,7 +173,7 @@ async def webhook_trigger(token: str, request: Request, wait: bool = False):
         if not auto or auto.trigger_type != "webhook" or not auto.enabled:
             raise HTTPException(404, "Not found")
         auto_id = auto.id
-    from ..engine.scheduler import fire
+    from app.modules.scheduler.service import fire
 
     run_id = await fire(auto_id, trigger="webhook", extra_input=payload)
     if not run_id:
@@ -183,3 +185,6 @@ async def webhook_trigger(token: str, request: Request, wait: bool = False):
             run = await s.get(Run, run_id)
             out = {"run_id": run_id, "status": run.status, "output": run.output, "error": run.error}
     return out
+
+
+ROUTERS = [router, hooks_router]

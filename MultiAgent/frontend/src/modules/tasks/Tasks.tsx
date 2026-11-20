@@ -3,15 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Bot, Calendar, Check, ChevronRight, Circle, CircleCheck, ListChecks, MessageSquare, Play, Plus, Sparkles, Trash2, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Task, TaskPriority, TaskStatus } from "@/lib/types";
-import { cn, errMsg, formatDate } from "@/lib/utils";
-import { useAction, useAgents, useTasks } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, EmptyState, Input, PageLoader, Select, Tabs, Textarea } from "@/components/ui/primitives";
-import { ConfirmDialog } from "@/components/ui/overlay";
-import { ExtractTasksDialog } from "@/components/tasks/ExtractTasksDialog";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Task, TaskPriority, TaskStatus } from "@/modules/tasks/types";
+import { cn, errMsg, formatDate } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useAgents } from "@/modules/agents/api";
+import { useTasks } from "@/modules/tasks/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, EmptyState, Input, PageLoader, Select, Tabs, Textarea } from "@/shared/ui/primitives";
+import { ConfirmDialog } from "@/shared/ui/overlay";
 
 type Filter = "open" | "done" | "all";
 
@@ -35,7 +36,7 @@ export default function Tasks() {
   const tasks = useTasks(projectId);
   const [filter, setFilter] = useState<Filter>("open");
   const [quick, setQuick] = useState("");
-  const [extract, setExtract] = useState(false);
+  const nav = useNavigate();
   const [open, setOpen] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Task | null>(null);
   const inv = [["tasks"]];
@@ -54,7 +55,7 @@ export default function Tasks() {
       <PageHeader
         title="Tasks"
         description={project ? `To-dos for “${project.name}”. Agents here can read and create them, and you can hand any task to an agent together with its context.` : "To-dos for the active project."}
-        actions={writable && <Button variant="outline" icon={<WandSparkles className="size-4" />} onClick={() => setExtract(true)}>Text to tasks</Button>}
+        actions={writable && <Button variant="outline" icon={<WandSparkles className="size-4" />} onClick={() => nav("/tasks/extract")}>Text to tasks</Button>}
       />
 
       {writable && (
@@ -88,7 +89,7 @@ export default function Tasks() {
           icon={<ListChecks className="size-5" />}
           title={filter === "done" ? "Nothing completed yet" : "No open tasks"}
           description="Add one above, convert an AI answer with the checklist button in chat, or paste notes and let us pull out the action items."
-          action={writable && <Button icon={<WandSparkles className="size-4" />} onClick={() => setExtract(true)}>Text to tasks</Button>}
+          action={writable && <Button icon={<WandSparkles className="size-4" />} onClick={() => nav("/tasks/extract")}>Text to tasks</Button>}
         />
       ) : (
         <div className="space-y-6">
@@ -118,7 +119,6 @@ export default function Tasks() {
         </div>
       )}
 
-      {projectId && <ExtractTasksDialog open={extract} onClose={() => setExtract(false)} projectId={projectId} />}
       <ConfirmDialog open={!!deleting} onClose={() => setDeleting(null)} onConfirm={() => deleting && del.mutate(deleting.id)} loading={del.isPending} title="Delete this task?" description={deleting?.title} />
     </Page>
   );

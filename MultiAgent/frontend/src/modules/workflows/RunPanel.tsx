@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ExternalLink, Play, Square } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { InputField } from "@/lib/types";
-import { errMsg } from "@/lib/utils";
-import type { RunStreamState } from "@/hooks/useRunStream";
-import { Button, Field, Input, Textarea } from "@/components/ui/primitives";
-import { CopyButton } from "@/components/ui/inputs";
-import { Markdown } from "@/components/ui/Markdown";
-import { RunStatusBadge, RunTimeline } from "@/components/run/RunTimeline";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { InputField } from "@/modules/workflows/types";
+import { errMsg } from "@/shared/lib/utils";
+import type { RunStreamState } from "@/modules/runs/useRunStream";
+import { Button, Field, Input, Textarea } from "@/shared/ui/primitives";
+import { CopyButton } from "@/shared/ui/inputs";
+import { Markdown } from "@/shared/ui/Markdown";
+import { RunStatusBadge, RunTimeline } from "@/modules/runs/RunTimeline";
 
 /** Run form + live result/trace for the workflow builder. Live node status is shown on the canvas. */
 export function RunPanel({

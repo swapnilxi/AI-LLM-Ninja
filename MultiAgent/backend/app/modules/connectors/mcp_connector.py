@@ -8,9 +8,9 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any
 
-from ..net import validate_url
-from ..tools.base import ToolResult, sanitize_name
-from .base import Action, ConfigField, Connector
+from app.engine.net import validate_url
+from app.engine.tools.base import ToolResult, sanitize_name
+from app.modules.connectors.base import Action, ConfigField, Connector
 
 log = logging.getLogger("agentforge.mcp")
 _CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}

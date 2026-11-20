@@ -14,16 +14,19 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...deps import visible
-from ...models import Agent, Connection, Skill, Tool
-from .. import knowledge
-from ..connectors.registry import connection_tools
-from .base import RuntimeTool
-from .builtin import BUILTINS
-from .custom import agent_tool, http_tool
+from app.core.deps import visible
+from app.engine.tools.base import RuntimeTool
+from app.engine.tools.builtin import BUILTINS
+from app.modules.agents.models import Agent
+from app.modules.connectors.models import Connection
+from app.modules.connectors.registry import connection_tools
+from app.modules.knowledge import service as knowledge
+from app.modules.skills.models import Skill
+from app.modules.tools.models import Tool
+from app.modules.tools.runtime import agent_tool, http_tool
 
 if TYPE_CHECKING:
-    from ..context import RunContext
+    from app.engine.context import RunContext
 
 log = logging.getLogger("agentforge.tools")
 MAX_TOOLS = 100

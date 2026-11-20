@@ -9,15 +9,15 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
-from ...db import SessionLocal
-from ...deps import visible
-from ...models import Skill
-from .. import skill_search
-from ..skill_install import InstallError
-from .base import ToolResult
+from app.core.db import SessionLocal
+from app.core.deps import visible
+from app.engine.tools.base import ToolResult
+from app.modules.skills import search as skill_search
+from app.modules.skills.install import InstallError
+from app.modules.skills.models import Skill
 
 if TYPE_CHECKING:
-    from ..context import RunContext
+    from app.engine.context import RunContext
 
 MAX_SKILL_CHARS = 12000
 _EXTERNAL_NOTICE = (

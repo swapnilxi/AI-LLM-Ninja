@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
-from .config import settings
+from app.core.config import settings
 
 log = logging.getLogger("agentforge.ratelimit")
 

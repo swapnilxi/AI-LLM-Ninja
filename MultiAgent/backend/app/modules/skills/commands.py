@@ -7,9 +7,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..deps import visible
-from ..models import Skill
-from .templating import TemplateRenderError, render
+from app.core.deps import visible
+from app.engine.templating import TemplateRenderError, render
+from app.modules.skills.models import Skill
 
 COMMAND_RE = re.compile(r"^\s*/([A-Za-z0-9][A-Za-z0-9_-]{0,39})(?:[ \t]+|\n|$)(.*)$", re.S)
 COMMAND_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")

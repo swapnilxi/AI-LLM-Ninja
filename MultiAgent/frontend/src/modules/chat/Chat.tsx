@@ -1,28 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessagesSquare, Plus, Users } from "lucide-react";
+import { ChevronLeft, MessagesSquare, Plus, Users } from "lucide-react";
 import { toast } from "sonner";
-import { http, qs } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Agent, Conversation } from "@/lib/types";
-import { cn, errMsg, timeAgo } from "@/lib/utils";
-import { useAgents, useTeams } from "@/hooks/useData";
-import { Button, EmptyState, Spinner } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
-import { NewChatDialog, TargetList, type ChatTarget } from "./TargetPicker";
+import { http, qs } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Agent } from "@/modules/agents/types";
+import type { Conversation } from "@/modules/chat/types";
+import { cn, errMsg, timeAgo } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useTeams } from "@/modules/teams/api";
+import { Button, EmptyState, Spinner } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
+import { TargetList, type ChatTarget } from "./TargetPicker";
 import { Thread } from "./Thread";
+import { CommandsPane, ConversationSkillsPane } from "./ChatPanes";
 
+/**
+ * One route (`chat/*`) so the conversation list and an open thread stay mounted while sub-pages change:
+ * /chat, /chat/new, /chat/:conversationId, /chat/:conversationId/skills, /chat/:conversationId/commands.
+ */
 export default function Chat() {
-  const { conversationId } = useParams();
+  const splat = (useParams()["*"] ?? "").split("/").filter(Boolean);
+  const isNew = splat[0] === "new";
+  const conversationId = isNew ? undefined : splat[0];
+  const sub = conversationId ? splat[1] : undefined;
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const qc = useQueryClient();
   const { projectId, project, can } = useAuth();
   const agents = useAgents();
   const teams = useTeams();
-  const [picker, setPicker] = useState(false);
   const [q, setQ] = useState("");
   const creating = useRef(false);
 
@@ -72,7 +81,7 @@ export default function Chat() {
   return (
     <div className="flex h-full min-h-0">
       {/* conversation list */}
-      <aside className={cn("flex w-full min-w-0 flex-col border-r border-border bg-surface/60 md:w-72 md:shrink-0 lg:w-80", conversationId && "hidden md:flex")}>
+      <aside className={cn("flex w-full min-w-0 flex-col border-r border-border bg-surface/60 md:w-72 md:shrink-0 lg:w-80", (conversationId || isNew) && "hidden md:flex")}>
         <div className="space-y-3 border-b border-border p-3">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -80,7 +89,7 @@ export default function Chat() {
               <p className="truncate text-xs text-muted">{project ? `in ${project.name}` : "No project selected"}</p>
             </div>
             {can("member") && (
-              <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setPicker(true)}>
+              <Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => nav("/chat/new")}>
                 New
               </Button>
             )}
@@ -94,7 +103,7 @@ export default function Chat() {
             <div className="px-3 py-10 text-center text-sm text-muted">
               No conversations yet.
               {can("member") && (
-                <button onClick={() => setPicker(true)} className="mt-2 block w-full cursor-pointer font-medium text-primary hover:underline">
+                <button onClick={() => nav("/chat/new")} className="mt-2 block w-full cursor-pointer font-medium text-primary hover:underline">
                   Start one
                 </button>
               )}
@@ -126,12 +135,24 @@ export default function Chat() {
       </aside>
 
       {/* thread */}
-      <section className={cn("min-w-0 flex-1", !conversationId && "hidden md:block")}>
+      <section className={cn("min-w-0 flex-1", !conversationId && !isNew && "hidden md:block")}>
         {conversationId ? (
-          <Thread key={conversationId} conversationId={conversationId} />
+          <>
+            {/* the thread stays mounted (draft, live stream) while a sub-page is open */}
+            <div className={cn("h-full", sub && "hidden")}>
+              <Thread key={conversationId} conversationId={conversationId} />
+            </div>
+            {sub === "skills" && <ConversationSkillsPane conversationId={conversationId} />}
+            {sub === "commands" && <CommandsPane conversationId={conversationId} />}
+          </>
         ) : (
           <div className="h-full overflow-y-auto">
             <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+              {isNew && (
+                <NavLink to="/chat" className="mb-4 inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-fg md:hidden">
+                  <ChevronLeft className="size-3.5" /> Back to chats
+                </NavLink>
+              )}
               <div className="mb-8 text-center">
                 <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-500/10 text-primary ring-1 ring-inset ring-indigo-500/20">
                   <MessagesSquare className="size-7" strokeWidth={1.8} />
@@ -149,7 +170,6 @@ export default function Chat() {
         )}
       </section>
 
-      <NewChatDialog open={picker} onClose={() => setPicker(false)} onPick={create} />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
-import { http } from "@/lib/api";
-import { formatDate, timeAgo } from "@/lib/utils";
-import { Badge, Button, Card, CardHeader, EmptyState, PageLoader } from "@/components/ui/primitives";
+import { http } from "@/shared/lib/api";
+import { formatDate, timeAgo } from "@/shared/lib/utils";
+import { Badge, Button, Card, CardHeader, EmptyState, PageLoader } from "@/shared/ui/primitives";
 
 interface AuditRow {
   id: number;

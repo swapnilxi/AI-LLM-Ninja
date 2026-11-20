@@ -12,7 +12,7 @@ from typing import Any
 import jwt
 from cryptography.fernet import Fernet, InvalidToken
 
-from .config import settings
+from app.core.config import settings
 
 _PBKDF2_ITERATIONS = 310_000
 JWT_ALG = "HS256"

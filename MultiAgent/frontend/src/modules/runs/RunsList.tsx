@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Activity, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import type { Run } from "@/lib/types";
-import { duration, formatNumber, timeAgo } from "@/lib/utils";
-import { useRuns } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, Checkbox, EmptyState, PageLoader, Select } from "@/components/ui/primitives";
-import { RunStatusBadge } from "@/components/run/RunTimeline";
+import { useAuth } from "@/shared/lib/auth";
+import type { Run } from "@/modules/runs/types";
+import { duration, formatNumber, timeAgo } from "@/shared/lib/utils";
+import { useRuns } from "@/modules/runs/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, Checkbox, EmptyState, PageLoader, Select } from "@/shared/ui/primitives";
+import { RunStatusBadge } from "@/modules/runs/RunTimeline";
 import { STATUSES, TARGET_META, TargetIcon, TRIGGERS } from "./common";
 
 const PAGE = 25;
@@ -16,7 +16,10 @@ export default function RunsList() {
   const { projectId, project } = useAuth();
   const nav = useNavigate();
   const [status, setStatus] = useState("");
-  const [targetType, setTargetType] = useState("");
+  const [search] = useSearchParams();
+  const [targetType, setTargetType] = useState(search.get("target_type") ?? "");
+  const targetId = search.get("target_id") ?? undefined;
+  const automationId = search.get("automation_id") ?? undefined;
   const [trigger, setTrigger] = useState("");
   const [onlyProject, setOnlyProject] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -25,6 +28,8 @@ export default function RunsList() {
   const params = {
     status: status || undefined,
     target_type: targetType || undefined,
+    target_id: targetId,
+    automation_id: automationId,
     trigger: trigger || undefined,
     project_id: onlyProject ? projectId ?? undefined : undefined,
     limit: PAGE,

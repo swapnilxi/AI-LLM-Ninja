@@ -5,8 +5,12 @@ import json
 
 import pytest
 
-from app.engine import hub, nl_schedule, schedule_ai, skill_install, skill_search
 from app.engine.net import SafeResponse
+from app.modules.discover import catalog as hub
+from app.modules.scheduler import assistant as schedule_ai
+from app.modules.scheduler import nl_parser as nl_schedule
+from app.modules.skills import install as skill_install
+from app.modules.skills import search as skill_search
 from tests.test_e2e import Api, register
 
 
@@ -75,18 +79,18 @@ def test_describe_and_next_runs():
 
 def test_draft_endpoint_rules(env):
     api, project = env["api"], env["project"]
-    r = api.post("/api/automations/draft", {"project_id": project["id"], "text": "every weekday at 9am summarize my GitHub PRs", "timezone": "Asia/Kolkata"})
+    r = api.post("/api/schedules/draft", {"project_id": project["id"], "text": "every weekday at 9am summarize my GitHub PRs", "timezone": "Asia/Kolkata"})
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["engine"] == "rules" and d["trigger_type"] == "schedule" and d["cron"] == "0 9 * * 1-5"
     assert d["task"] == "summarize my GitHub PRs" and d["timezone"] == "Asia/Kolkata" and len(d["next_runs"]) == 3
     assert d["summary"] == "Every weekday at 09:00 (Asia/Kolkata)" and d["target_type"] == "agent" and d["input"] == {"task": d["task"]}
     # the draft is a preview only: it can be saved through the normal automation endpoint
-    created = api.post("/api/automations", {k: d[k] for k in ("project_id", "name", "target_type", "target_id", "input", "trigger_type", "cron", "timezone")})
+    created = api.post("/api/schedules", {k: d[k] for k in ("project_id", "name", "target_type", "target_id", "input", "trigger_type", "cron", "timezone")})
     assert created.status_code == 201, created.text
     assert created.json()["next_run_at"]
     # bad timezone falls back to UTC, no schedule => manual with guidance (never a guessed schedule)
-    d2 = api.post("/api/automations/draft", {"project_id": project["id"], "text": "summarize this article", "timezone": "Mars/Base"}).json()
+    d2 = api.post("/api/schedules/draft", {"project_id": project["id"], "text": "summarize this article", "timezone": "Mars/Base"}).json()
     assert d2["timezone"] == "UTC" and d2["trigger_type"] == "manual" and d2["notes"] and d2["next_runs"] == []
 
 
@@ -100,21 +104,21 @@ def test_draft_ai_path_validates_model_output(env, monkeypatch):
 
     good = json.dumps({"name": "PR digest", "task": "Summarize open pull requests", "schedule": "every weekday at 9am", "cron": "0 9 * * 1-5"})
     monkeypatch.setattr(schedule_ai, "complete", fake("Here you go:\n```json\n" + good + "\n```"))
-    d = api.post("/api/automations/draft", {"project_id": project["id"], "text": "pr digest please"}).json()
+    d = api.post("/api/schedules/draft", {"project_id": project["id"], "text": "pr digest please"}).json()
     assert d["engine"] == "ai" and d["name"] == "PR digest" and d["cron"] == "0 9 * * 1-5"
 
     # a model-invented cron is only trusted when it parses; garbage never reaches the scheduler
     bad = json.dumps({"name": "X", "task": "Do X", "schedule": "when the stars align", "cron": "99 99 * * *"})
     monkeypatch.setattr(schedule_ai, "complete", fake(bad))
-    d = api.post("/api/automations/draft", {"project_id": project["id"], "text": "do X when the stars align"}).json()
+    d = api.post("/api/schedules/draft", {"project_id": project["id"], "text": "do X when the stars align"}).json()
     assert d["trigger_type"] == "manual" and d["cron"] == ""
     unusual = json.dumps({"name": "X", "task": "Do X", "schedule": "twice a month", "cron": "0 8 1,15 * *"})
     monkeypatch.setattr(schedule_ai, "complete", fake(unusual))
-    d = api.post("/api/automations/draft", {"project_id": project["id"], "text": "do X twice a month"}).json()
+    d = api.post("/api/schedules/draft", {"project_id": project["id"], "text": "do X twice a month"}).json()
     assert d["trigger_type"] == "schedule" and d["cron"] == "0 8 1,15 * *"
     # unparseable reply => rules fallback still works
     monkeypatch.setattr(schedule_ai, "complete", fake("sorry, no JSON"))
-    d = api.post("/api/automations/draft", {"project_id": project["id"], "text": "daily at 7:15 send standup notes"}).json()
+    d = api.post("/api/schedules/draft", {"project_id": project["id"], "text": "daily at 7:15 send standup notes"}).json()
     assert d["engine"] == "rules" and d["cron"] == "15 7 * * *"
 
 
@@ -245,11 +249,17 @@ def test_agent_can_schedule_from_chat_when_enabled(env):
     assert "schedule_task" in start["tools"]
     result = next(e for e in ev if e["type"] == "tool_result" and e["data"]["name"] == "schedule_task")["data"]
     assert not result["is_error"], result["output"]
-    assert "Every weekday at 09:00" in result["output"] and "Automations page" in result["output"]
-    autos = [a for a in api.get(f"/api/automations?project_id={pid}").json() if a["description"].startswith("Scheduled by an agent")]
+    assert "Every weekday at 09:00" in result["output"] and "Scheduler page" in result["output"]
+    autos = [a for a in api.get(f"/api/schedules?project_id={pid}").json() if a["description"].startswith("Scheduled by an agent")]
     assert autos and autos[0]["cron"] == "0 9 * * 1-5" and autos[0]["target_id"] == env["plain"]["id"] and autos[0]["next_run_at"]
-    # unparseable or one-off schedules are refused with guidance, not guessed
+    # one-time schedules are supported
     run, _, ev = run_tools(api, env, "schedule_task remind me tomorrow at 9 to call mum")
+    once = next(e for e in ev if e["type"] == "tool_result" and e["data"]["name"] == "schedule_task")["data"]
+    assert not once["is_error"] and "Once on" in once["output"], once["output"]
+    row = next(a for a in api.get(f"/api/schedules?project_id={pid}").json() if a["trigger_type"] == "once")
+    assert row["run_at"] and row["next_run_at"] and row["source"] == "agent"
+    # unparseable schedules are refused with guidance, not guessed
+    run, _, ev = run_tools(api, env, "schedule_task whenever the stars align write a poem")
     bad = next(e for e in ev if e["type"] == "tool_result" and e["data"]["name"] == "schedule_task")["data"]
     assert bad["is_error"] and "could not understand" in bad["output"]
     api.patch(f"/api/projects/{pid}", {"settings": {"scheduling_enabled": False}})
@@ -351,7 +361,7 @@ def test_use_skill_respects_project_network_policy(env, fake_net):
 
 
 def test_hub_catalog_shape(env):
-    d = env["api"].get(f"/api/hub?project_id={env['project']['id']}").json()
+    d = env["api"].get(f"/api/discover?project_id={env['project']['id']}").json()
     assert {p["id"] for p in d["skills"]} >= {"find-skills", "anthropic-frontend-design", "vercel-web-design", "diagram-design", "karpathy-guidelines", "cloudflare-zero-trust", "cyber-defense", "browser-use-guide", "agentmemory", "openviking"}
     assert {m["id"] for m in d["mcp"]} >= {"browser-use-cloud", "github-mcp", "context7", "deepwiki"}
     assert any(k["id"] == "awesome-harness-engineering" for k in d["knowledge"])
@@ -362,7 +372,7 @@ def test_hub_catalog_shape(env):
 
 def test_install_pack_at_project_level_and_agents_use_it(env, fake_net):
     api, pid = env["api"], env["project"]["id"]
-    r = api.post("/api/hub/skills/install", {"pack_id": "anthropic-frontend-design", "project_id": pid})
+    r = api.post("/api/discover/skills/install", {"pack_id": "anthropic-frontend-design", "project_id": pid})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["attached"] and body["results"][0]["name"] == "frontend-design" and body["results"][0]["status"] == "installed"
@@ -373,14 +383,14 @@ def test_install_pack_at_project_level_and_agents_use_it(env, fake_net):
     # an agent with NO skills of its own now gets the project's skill
     run, start, _ = run_tools(api, env, "Design a landing page")
     assert "frontend-design" in start["skills"] and "frontend-design" in run["output"]
-    d = api.get(f"/api/hub?project_id={pid}").json()
+    d = api.get(f"/api/discover?project_id={pid}").json()
     pack = next(p for p in d["skills"] if p["id"] == "anthropic-frontend-design")
     assert pack["installed"] and pack["attached"] and pack["skill_ids"] == [sid] and pack["instruction_chars"] > 0
     # reinstalling updates instead of duplicating
-    again = api.post("/api/hub/skills/install", {"pack_id": "anthropic-frontend-design"}).json()
+    again = api.post("/api/discover/skills/install", {"pack_id": "anthropic-frontend-design"}).json()
     assert again["results"][0]["status"] == "updated" and again["attached"] is False and again["project_id"] is None
-    assert api.post("/api/hub/skills/install", {"pack_id": "nope"}).status_code == 404
-    assert api.post("/api/hub/skills/install", {}).status_code == 400
+    assert api.post("/api/discover/skills/install", {"pack_id": "nope"}).status_code == 404
+    assert api.post("/api/discover/skills/install", {}).status_code == 400
     # detach: the agent no longer gets it
     api.patch(f"/api/projects/{pid}", {"settings": {"skill_ids": []}})
     _, start, _ = run_tools(api, env, "Design a landing page")
@@ -389,7 +399,7 @@ def test_install_pack_at_project_level_and_agents_use_it(env, fake_net):
 
 def test_install_find_skills_playbook_to_project(env):
     api, pid = env["api"], env["project"]["id"]
-    r = api.post("/api/hub/skills/install", {"pack_id": "find-skills", "project_id": pid}).json()
+    r = api.post("/api/discover/skills/install", {"pack_id": "find-skills", "project_id": pid}).json()
     assert r["attached"] and r["results"][0]["name"] == "Find Skills"
     _, start, _ = run_tools(api, env, "hello")
     assert "Find Skills" in start["skills"] and {"find_skills", "use_skill"} <= set(start["tools"])
@@ -398,14 +408,14 @@ def test_install_find_skills_playbook_to_project(env):
 
 def test_install_registry_skill_and_search(env, fake_net):
     api, pid = env["api"], env["project"]["id"]
-    s = api.get("/api/hub/skills/search?q=react").json()
+    s = api.get("/api/discover/skills/search?q=react").json()
     assert s["error"] is None and [r["ref"] for r in s["results"]] == ["vercel-labs/agent-skills@react-best-practices", "vercel-labs/agent-skills@vercel-react-best-practices"]
-    r = api.post("/api/hub/skills/install", {"source": "vercel-labs/agent-skills", "skill": "react-best-practices", "project_id": pid})
+    r = api.post("/api/discover/skills/install", {"source": "vercel-labs/agent-skills", "skill": "react-best-practices", "project_id": pid})
     assert r.status_code == 200 and r.json()["results"][0]["name"] == "react-best-practices"
-    flags = {x["ref"]: x["installed"] for x in api.get("/api/hub/skills/search?q=react").json()["results"]}
+    flags = {x["ref"]: x["installed"] for x in api.get("/api/discover/skills/search?q=react").json()["results"]}
     assert flags == {"vercel-labs/agent-skills@react-best-practices": True, "vercel-labs/agent-skills@vercel-react-best-practices": False}  # per skill, not per repo
-    assert api.post("/api/hub/skills/install", {"source": "../x", "skill": "y"}).status_code == 400
-    assert api.post("/api/hub/skills/install", {"source": "vercel-labs/agent-skills", "skill": "nope"}).status_code == 400
+    assert api.post("/api/discover/skills/install", {"source": "../x", "skill": "y"}).status_code == 400
+    assert api.post("/api/discover/skills/install", {"source": "vercel-labs/agent-skills", "skill": "nope"}).status_code == 400
     api.patch(f"/api/projects/{pid}", {"settings": {"skill_ids": []}})
 
 
@@ -432,7 +442,7 @@ def test_large_project_skill_sets_are_loaded_on_demand(env):
 # ===================================================================== MCP + knowledge install (project level)
 @pytest.fixture()
 def fake_mcp(monkeypatch):
-    from app.engine.connectors.mcp_connector import MCP
+    from app.modules.connectors.mcp_connector import MCP
 
     seen = []
 
@@ -446,9 +456,9 @@ def fake_mcp(monkeypatch):
 
 def test_install_mcp_server_and_attach_to_project(env, fake_mcp):
     api, pid = env["api"], env["project"]["id"]
-    assert api.post("/api/hub/mcp/install", {"server_id": "github-mcp"}).status_code == 400  # needs a token
-    assert api.post("/api/hub/mcp/install", {"server_id": "nope"}).status_code == 404
-    r = api.post("/api/hub/mcp/install", {"server_id": "github-mcp", "token": "ghp_secret_123", "project_id": pid})
+    assert api.post("/api/discover/mcp/install", {"server_id": "github-mcp"}).status_code == 400  # needs a token
+    assert api.post("/api/discover/mcp/install", {"server_id": "nope"}).status_code == 404
+    r = api.post("/api/discover/mcp/install", {"server_id": "github-mcp", "token": "ghp_secret_123", "project_id": pid})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["test"]["ok"] and body["attached"] and body["connection"]["status"] == "ok"
@@ -458,10 +468,10 @@ def test_install_mcp_server_and_attach_to_project(env, fake_mcp):
     cid = body["connection"]["id"]
     assert cid in api.get(f"/api/projects/{pid}").json()["settings"]["connection_ids"]
     # no-auth servers install without a token; reinstalling reuses the connection
-    d1 = api.post("/api/hub/mcp/install", {"server_id": "deepwiki"}).json()
-    d2 = api.post("/api/hub/mcp/install", {"server_id": "deepwiki"}).json()
+    d1 = api.post("/api/discover/mcp/install", {"server_id": "deepwiki"}).json()
+    d2 = api.post("/api/discover/mcp/install", {"server_id": "deepwiki"}).json()
     assert d1["connection"]["id"] == d2["connection"]["id"]
-    hubd = api.get(f"/api/hub?project_id={pid}").json()
+    hubd = api.get(f"/api/discover?project_id={pid}").json()
     gh = next(m for m in hubd["mcp"] if m["id"] == "github-mcp")
     assert gh["connection_id"] == cid and gh["attached"] is True and gh["status"] == "ok"
     assert next(m for m in hubd["mcp"] if m["id"] == "deepwiki")["attached"] is False
@@ -472,36 +482,36 @@ def test_install_mcp_requires_admin(env, client, fake_mcp):
     token, _, _ = register(client, "viv.hub@example.com", "Viv", "Viv Co")
     # a member of another org cannot use this org's id
     other = Api(client, token, env["api"].org_id)
-    assert other.post("/api/hub/mcp/install", {"server_id": "deepwiki"}).status_code in (401, 403, 404)
-    assert api.post("/api/hub/mcp/install", {"server_id": "deepwiki"}).status_code == 200
+    assert other.post("/api/discover/mcp/install", {"server_id": "deepwiki"}).status_code in (401, 403, 404)
+    assert api.post("/api/discover/mcp/install", {"server_id": "deepwiki"}).status_code == 200
 
 
 def test_install_failed_test_still_saves_connection_with_error_status(env, monkeypatch):
-    from app.engine.connectors.mcp_connector import MCP
+    from app.modules.connectors.mcp_connector import MCP
 
     async def tester(cfg):
         return False, "MCP connection failed: 401"
 
     monkeypatch.setattr(MCP, "tester", tester)
-    r = env["api"].post("/api/hub/mcp/install", {"server_id": "stripe", "token": "sk_bad"}).json()
+    r = env["api"].post("/api/discover/mcp/install", {"server_id": "stripe", "token": "sk_bad"}).json()
     assert r["test"]["ok"] is False and r["connection"]["status"] == "error" and "sk_bad" not in json.dumps(r)
 
 
 def test_install_knowledge_doc(env, monkeypatch):
-    from app.api import knowledge as knowledge_api
+    from app.modules.knowledge import router as knowledge_api
 
     async def fake(method, url, **kw):
         return SafeResponse(200, {"content-type": "text/plain"}, url, b"# Awesome Harness Engineering\n\n- Tool A: evals\n- Tool B: sandboxes\n")
 
     monkeypatch.setattr(knowledge_api, "safe_request", fake)
     api, pid = env["api"], env["project"]["id"]
-    r = api.post("/api/hub/knowledge/install", {"item_id": "awesome-harness-engineering", "project_id": pid})
+    r = api.post("/api/discover/knowledge/install", {"item_id": "awesome-harness-engineering", "project_id": pid})
     assert r.status_code == 201, r.text
-    assert api.post("/api/hub/knowledge/install", {"item_id": "awesome-harness-engineering", "project_id": pid}).status_code == 409
+    assert api.post("/api/discover/knowledge/install", {"item_id": "awesome-harness-engineering", "project_id": pid}).status_code == 409
     docs = api.get(f"/api/documents?owner_type=project&owner_id={pid}").json()
     assert any(d["title"].startswith("Awesome Harness Engineering") for d in docs)
-    assert next(k for k in api.get(f"/api/hub?project_id={pid}").json()["knowledge"] if k["id"] == "awesome-harness-engineering")["installed"] is True
-    assert api.post("/api/hub/knowledge/install", {"item_id": "nope", "project_id": pid}).status_code == 404
+    assert next(k for k in api.get(f"/api/discover?project_id={pid}").json()["knowledge"] if k["id"] == "awesome-harness-engineering")["installed"] is True
+    assert api.post("/api/discover/knowledge/install", {"item_id": "nope", "project_id": pid}).status_code == 404
 
 
 def test_catalog_entries_are_well_formed():
@@ -517,7 +527,7 @@ def test_catalog_entries_are_well_formed():
 
 # ===================================================================== regressions found by checking against the live services
 def test_pack_install_uses_known_paths_without_the_rate_limited_github_api(env, fake_net):
-    r = env["api"].post("/api/hub/skills/install", {"pack_id": "vercel-web-design"})
+    r = env["api"].post("/api/discover/skills/install", {"pack_id": "vercel-web-design"})
     assert r.status_code == 200, r.text
     assert sorted(x["name"] for x in r.json()["results"]) == ["composition-patterns", "react-best-practices", "web-design-guidelines"]
     assert not any(url.startswith("https://api.github.com/") for url, _ in fake_net)  # raw downloads only
@@ -528,7 +538,7 @@ def test_registry_skill_id_may_differ_from_folder_name(env, fake_net):
     # the registry's id is "vercel-react-best-practices" but the folder is "react-best-practices"
     out = call_tool(api, env, "use_skill", {"skill": "vercel-labs/agent-skills@vercel-react-best-practices"})
     assert out["ok"] and "Avoid waterfalls." in out["output"]
-    r = api.post("/api/hub/skills/install", {"source": "vercel-labs/agent-skills", "skill": "vercel-react-best-practices"})
+    r = api.post("/api/discover/skills/install", {"source": "vercel-labs/agent-skills", "skill": "vercel-react-best-practices"})
     assert r.status_code == 200, r.text
     assert r.json()["results"][0]["path"] == "skills/react-best-practices/SKILL.md"
 

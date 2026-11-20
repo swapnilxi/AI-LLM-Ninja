@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { streamRun } from "@/lib/sse";
-import type { RunEvent, RunStatus } from "@/lib/types";
+import { streamRun } from "@/shared/lib/sse";
+import type { RunEvent, RunStatus } from "@/modules/runs/types";
 
 export interface RunStreamState {
   events: RunEvent[]; // persisted trace events

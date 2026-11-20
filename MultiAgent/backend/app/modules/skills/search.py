@@ -12,12 +12,12 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..deps import visible
-from ..models import Skill
-from . import hub
-from .knowledge import tokenize
-from .net import BlockedURL, NetPolicy, safe_request
-from .skill_install import InstallError, Source, fetch_skill, fuzzy_candidates, list_skills, parse_skill_md
+from app.core.deps import visible
+from app.engine.net import BlockedURL, NetPolicy, safe_request
+from app.modules.discover import catalog as hub
+from app.modules.knowledge.service import tokenize
+from app.modules.skills.install import InstallError, Source, fetch_skill, fuzzy_candidates, list_skills, parse_skill_md
+from app.modules.skills.models import Skill
 
 log = logging.getLogger("agentforge.skill_search")
 

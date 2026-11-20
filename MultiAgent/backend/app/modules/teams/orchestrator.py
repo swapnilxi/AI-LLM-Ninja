@@ -12,13 +12,14 @@ import asyncio
 import re
 from typing import Any
 
-from ..db import SessionLocal
-from ..models import Agent, Team
-from .context import RunContext
-from .llm.base import LLMError, ModelSettings
-from .llm.registry import get_provider, resolve_model
-from .runner import run_agent
-from .tools.base import RuntimeTool, ToolResult, sanitize_name, schema
+from app.core.db import SessionLocal
+from app.engine.context import RunContext
+from app.engine.llm.base import LLMError, ModelSettings
+from app.engine.llm.registry import get_provider, resolve_model
+from app.engine.tools.base import RuntimeTool, ToolResult, sanitize_name, schema
+from app.modules.agents.models import Agent
+from app.modules.agents.runner import run_agent
+from app.modules.teams.models import Team
 
 STYLES = {
     "sequential": "Pipeline - each agent builds on the previous agent's output",

@@ -12,7 +12,7 @@ import secrets
 from collections.abc import AsyncIterator
 from typing import Any
 
-from .base import LLMProvider, LLMResponse, ModelSettings, StreamEvent, ToolCall, Usage
+from app.engine.llm.base import LLMProvider, LLMResponse, ModelSettings, StreamEvent, ToolCall, Usage
 
 _URL_RE = re.compile(r"https?://[^\s)\"'>]+")
 _MATH_RE = re.compile(r"(?<![\w.])(\(?-?\d[\d.,\s]*(?:[+\-*/^%]\s*\(?\s*-?\d[\d.,\s]*\)?\s*)+)")

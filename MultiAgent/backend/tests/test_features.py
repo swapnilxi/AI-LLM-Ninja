@@ -145,7 +145,7 @@ def test_export_import_between_tenants(env, client):
 def test_auto_migration_adds_columns(tmp_path):
     from sqlalchemy import create_engine, inspect, text
 
-    from app.db import Base, _add_missing_columns
+    from app.core.db import Base, _add_missing_columns
 
     eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
     with eng.begin() as conn:

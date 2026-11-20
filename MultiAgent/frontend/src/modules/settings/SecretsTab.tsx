@@ -1,11 +1,14 @@
 import { useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Info, KeyRound, Plus, Trash2 } from "lucide-react";
-import { http } from "@/lib/api";
-import { timeAgo } from "@/lib/utils";
-import { useAction } from "@/hooks/useData";
-import { ConfirmDialog, Dialog } from "@/components/ui/overlay";
-import { Button, Card, CardHeader, EmptyState, Field, Input, PageLoader } from "@/components/ui/primitives";
+import { http } from "@/shared/lib/api";
+import { timeAgo } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { ConfirmDialog } from "@/shared/ui/overlay";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { IconTile } from "@/shared/ui/icons";
+import { Button, Card, CardHeader, EmptyState, Field, Input, PageLoader } from "@/shared/ui/primitives";
 
 interface SecretRow {
   id: string;
@@ -17,7 +20,7 @@ interface SecretRow {
 
 export function SecretsTab() {
   const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => http.get<SecretRow[]>("/org/secrets") });
-  const [editing, setEditing] = useState<{ name: string; description: string } | null>(null);
+  const nav = useNavigate();
   const [removing, setRemoving] = useState<SecretRow | null>(null);
   const remove = useAction((id: string) => http.del(`/org/secrets/${id}`), { success: "Secret deleted", invalidate: [["secrets"]], onSuccess: () => setRemoving(null) });
 
@@ -38,7 +41,7 @@ export function SecretsTab() {
         </div>
       </div>
       <Card>
-        <CardHeader title="Secrets" description={`${list.length} stored`} actions={<Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => setEditing({ name: "", description: "" })}>Add secret</Button>} />
+        <CardHeader title="Secrets" description={`${list.length} stored`} actions={<Button size="sm" icon={<Plus className="size-3.5" />} onClick={() => nav("/settings/secrets/new")}>Add secret</Button>} />
         {list.length === 0 ? (
           <EmptyState icon={<KeyRound className="size-5" />} title="No secrets yet" description="Store API tokens for your custom tools and web search providers." className="m-4 border-0" />
         ) : (
@@ -53,7 +56,7 @@ export function SecretsTab() {
                     {s.description && <> · {s.description}</>} · updated {timeAgo(s.updated_at)}
                   </div>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => setEditing({ name: s.name, description: s.description })}>Replace</Button>
+                <Link to={`/settings/secrets/${encodeURIComponent(s.name)}`} className="inline-flex h-8 shrink-0 items-center rounded-lg border border-border bg-surface px-3 text-xs font-medium hover:bg-surface-2">Replace</Link>
                 <Button variant="ghost" size="icon" onClick={() => setRemoving(s)} aria-label={`Delete ${s.name}`}>
                   <Trash2 className="size-4 text-muted" />
                 </Button>
@@ -62,48 +65,57 @@ export function SecretsTab() {
           </ul>
         )}
       </Card>
-      <SecretDialog initial={editing} onClose={() => setEditing(null)} />
       <ConfirmDialog open={!!removing} onClose={() => setRemoving(null)} onConfirm={() => removing && remove.mutate(removing.id)} loading={remove.isPending} title={`Delete ${removing?.name}?`} description="Tools referencing this secret will stop working." />
     </div>
   );
 }
 
-function SecretDialog({ initial, onClose }: { initial: { name: string; description: string } | null; onClose: () => void }) {
-  const [name, setName] = useState("");
+/** /settings/secrets/new and /settings/secrets/:name (replace the value of an existing secret). */
+export function SecretPage() {
+  const { name: existing } = useParams();
+  const nav = useNavigate();
+  const secrets = useQuery({ queryKey: ["secrets"], queryFn: () => http.get<SecretRow[]>("/org/secrets"), enabled: !!existing });
+  const current = existing ? secrets.data?.find((x) => x.name === existing) : undefined;
+  const [name, setName] = useState(existing ?? "");
   const [value, setValue] = useState("");
-  const [description, setDescription] = useState("");
-  const [seen, setSeen] = useState<typeof initial>(null);
-  if (initial !== seen) {
-    setSeen(initial);
-    setName(initial?.name ?? "");
-    setDescription(initial?.description ?? "");
-    setValue("");
-  }
+  const [description, setDescription] = useState<string | null>(null);
+  const desc = description ?? current?.description ?? "";
   const valid = /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
-  const save = useAction(() => http.post("/org/secrets", { name, value, description }), { success: "Secret saved", invalidate: [["secrets"]], onSuccess: onClose });
+  const done = () => nav("/settings/secrets");
+  const save = useAction(() => http.post("/org/secrets", { name, value, description: desc }), { success: "Secret saved", invalidate: [["secrets"]], onSuccess: done });
+  if (existing && secrets.isLoading) return <PageLoader />;
   return (
-    <Dialog
-      open={!!initial}
-      onClose={onClose}
-      title={initial?.name ? `Replace ${initial.name}` : "Add secret"}
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button loading={save.isPending} disabled={!valid || !value} onClick={() => save.mutate()}>Save secret</Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Name" error={name && !valid ? "Letters, numbers and underscores; must not start with a number" : undefined}>
-          <Input autoFocus={!initial?.name} disabled={!!initial?.name} value={name} onChange={(e) => setName(e.target.value.toUpperCase())} placeholder="GITHUB_TOKEN" className="font-mono" />
-        </Field>
-        <Field label="Value">
-          <Input type="password" autoComplete="off" autoFocus={!!initial?.name} value={value} onChange={(e) => setValue(e.target.value)} />
-        </Field>
-        <Field label="Description (optional)">
-          <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-        </Field>
-      </div>
-    </Dialog>
+    <Page className="max-w-2xl">
+      <PageHeader
+        back="/settings/secrets"
+        icon={<IconTile icon={KeyRound} color="indigo" />}
+        title={existing ? `Replace ${existing}` : "Add secret"}
+        description="Encrypted at rest and never returned in full. Reference it in custom HTTP tools as {{ secrets.NAME }}."
+      />
+      <Card>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (valid && value) save.mutate();
+          }}
+        >
+          <div className="space-y-4 p-4 sm:p-5">
+            <Field label="Name" error={name && !valid ? "Letters, numbers and underscores; must not start with a number" : undefined}>
+              <Input autoFocus={!existing} disabled={!!existing} value={name} onChange={(e) => setName(e.target.value.toUpperCase())} placeholder="GITHUB_TOKEN" className="font-mono" />
+            </Field>
+            <Field label="Value">
+              <Input type="password" autoComplete="off" autoFocus={!!existing} value={value} onChange={(e) => setValue(e.target.value)} />
+            </Field>
+            <Field label="Description (optional)">
+              <Input value={desc} onChange={(e) => setDescription(e.target.value)} />
+            </Field>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+            <Button type="button" variant="outline" onClick={done}>Cancel</Button>
+            <Button type="submit" loading={save.isPending} disabled={!valid || !value}>Save secret</Button>
+          </div>
+        </form>
+      </Card>
+    </Page>
   );
 }

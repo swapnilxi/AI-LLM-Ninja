@@ -11,16 +11,18 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
-from ..db import SessionLocal
-from ..deps import visible
-from ..models import Agent, Memory, Skill
-from . import knowledge
-from .context import RunContext
-from .llm.base import LLMError, ModelSettings, ToolCall
-from .llm.registry import get_provider, resolve_model
-from .tools.base import UNTRUSTED_HEADER, RuntimeTool, ToolResult, validate_args
-from .tools.registry import build_toolset
+from app.core.config import settings
+from app.core.db import SessionLocal
+from app.core.deps import visible
+from app.engine.context import RunContext
+from app.engine.llm.base import LLMError, ModelSettings, ToolCall
+from app.engine.llm.registry import get_provider, resolve_model
+from app.engine.tools.base import UNTRUSTED_HEADER, RuntimeTool, ToolResult, validate_args
+from app.engine.tools.registry import build_toolset
+from app.modules.agents.models import Agent
+from app.modules.knowledge import service as knowledge
+from app.modules.knowledge.models import Memory
+from app.modules.skills.models import Skill
 
 log = logging.getLogger("agentforge.runner")
 SKILLS_PROMPT_BUDGET = 30000  # characters of skill text injected per run; the rest is listed and loaded on demand
@@ -115,7 +117,11 @@ async def build_system_prompt(
     mem_rows += (await session.execute(agent_mem.order_by(Memory.created_at.desc()).limit(30))).scalars().all()
     if mem_rows:
         parts += ["", "## Long-term memory (most recent first)"]
-        parts += [f"- [{m.scope} memory] {(m.key + ': ') if m.key else ''}{m.content[:500]}" for m in mem_rows]
+        # taught lessons (Q&A examples, corrections) are long on purpose; ordinary memories stay short
+        def cap(m: Memory) -> int:
+            return 2000 if any(str(t).startswith("kind:") for t in (m.tags or [])) else 500
+
+        parts += [f"- [{m.scope} memory] {(m.key + ': ') if m.key else ''}{m.content[:cap(m)]}" for m in mem_rows]
 
     names = {t.name for t in tools}
     rules = [

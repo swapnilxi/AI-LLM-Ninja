@@ -6,10 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, audit, filter_visible_ids, get_org_ctx, get_project, require_role
-from ..models import Agent, Connection, Document, Memory, Project, Skill, Tool
-from ..schemas import ProjectIn, ProjectOut, ProjectUpdate
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, filter_visible_ids, get_org_ctx, get_project, require_role
+from app.modules.agents.models import Agent
+from app.modules.connectors.models import Connection
+from app.modules.knowledge.models import Document, Memory
+from app.modules.projects.models import Project
+from app.modules.projects.schemas import ProjectIn, ProjectOut, ProjectUpdate
+from app.modules.skills.models import Skill
+from app.modules.tools.models import Tool
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Bot, Brain, Calculator, Clock, FileText, FlaskConical, Globe, Library, Plus, Search, Trash2, Webhook, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { JSONSchema, Tool } from "@/lib/types";
-import { cn, errMsg } from "@/lib/utils";
-import { Badge, Button, Card, CardHeader, Checkbox, Input, Select } from "@/components/ui/primitives";
-import { JsonEditor } from "@/components/ui/inputs";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { JSONSchema } from "@/shared/lib/types";
+import type { Tool } from "@/modules/tools/types";
+import { cn, errMsg } from "@/shared/lib/utils";
+import { Badge, Button, Card, CardHeader, Checkbox, Input, Select } from "@/shared/ui/primitives";
+import { JsonEditor } from "@/shared/ui/inputs";
 
 export const BUILTIN_ICONS: Record<string, { icon: LucideIcon; color: string }> = {
   web_search: { icon: Search, color: "sky" },

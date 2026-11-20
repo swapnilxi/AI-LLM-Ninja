@@ -9,10 +9,12 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db import get_session
-from .models import ApiKey, AuditLog, Membership, Organization, Project, User
-from .ratelimit import client_ip
-from .security import decode_access_token, sha256_hex
+from app.core.db import get_session
+from app.core.ratelimit import client_ip
+from app.core.security import decode_access_token, sha256_hex
+from app.modules.auth.models import User
+from app.modules.orgs.models import ApiKey, AuditLog, Membership, Organization
+from app.modules.projects.models import Project
 
 ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
 T = TypeVar("T")

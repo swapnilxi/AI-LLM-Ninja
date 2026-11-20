@@ -9,7 +9,7 @@ from typing import Any
 import openai
 from openai import AsyncOpenAI
 
-from .base import LLMError, LLMProvider, LLMResponse, ModelSettings, StreamEvent, ToolCall, Usage
+from app.engine.llm.base import LLMError, LLMProvider, LLMResponse, ModelSettings, StreamEvent, ToolCall, Usage
 
 _REASONING_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 _USAGE_STREAM_PROVIDERS = {"openai", "openrouter", "groq", "deepseek", "mistral"}

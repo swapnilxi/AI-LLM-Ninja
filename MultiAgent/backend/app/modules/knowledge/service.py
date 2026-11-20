@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Document, DocumentChunk
+from app.modules.knowledge.models import Document, DocumentChunk
 
 TEXT_EXTS = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".log", ".yaml", ".yml", ".xml", ".ini", ".toml", ".py", ".js", ".ts", ".sql"}
 ALLOWED_EXTS = TEXT_EXTS | {".html", ".htm", ".pdf", ".docx"}

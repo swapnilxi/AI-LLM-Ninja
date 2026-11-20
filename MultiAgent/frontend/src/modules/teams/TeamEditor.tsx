@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, Check, Copy, MessagesSquare, Play, Plus, Save, Trash2, X } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Agent, Team, TeamMember, TeamStyle } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { useAction, useAgents, useTeam } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Button, Card, CardHeader, EmptyState, Field, Input, PageLoader, Select, Textarea } from "@/components/ui/primitives";
-import { ConfirmDialog } from "@/components/ui/overlay";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
-import { GlobalNotice, SaveBar, ScopeBadge } from "@/components/library";
-import { RunLauncher } from "@/components/run/RunLauncher";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Agent } from "@/modules/agents/types";
+import type { Team, TeamMember, TeamStyle } from "@/modules/teams/types";
+import { cn } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useAgents } from "@/modules/agents/api";
+import { useTeam } from "@/modules/teams/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Button, Card, CardHeader, EmptyState, Field, Input, PageLoader, Select, Textarea } from "@/shared/ui/primitives";
+import { ConfirmDialog } from "@/shared/ui/overlay";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
+import { GlobalNotice, SaveBar, ScopeBadge } from "@/shared/components/library";
+import { withReturn } from "@/shared/hooks/useReturnTo";
 import { TEAM_STYLES } from "./styles";
 
 interface Form {
@@ -62,7 +65,6 @@ export default function TeamEditor() {
   const agents = agentsQ.data ?? [];
   const [form, setForm] = useState<Form>(EMPTY);
   const [confirm, setConfirm] = useState(false);
-  const [runOpen, setRunOpen] = useState(false);
 
   useEffect(() => {
     if (team.data)
@@ -133,7 +135,7 @@ export default function TeamEditor() {
           !isNew && (
             <>
               <Button variant="outline" icon={<MessagesSquare className="size-4" />} onClick={() => nav(`/chat?team=${id}`)}>Chat</Button>
-              {can("member") && <Button icon={<Play className="size-4" />} onClick={() => setRunOpen(true)}>Run</Button>}
+              {can("member") && <Button icon={<Play className="size-4" />} onClick={() => nav(withReturn(`/runs/new?target_type=team&target_id=${id}`, `/teams/${id}`))}>Run</Button>}
               <Button variant="outline" icon={<Copy className="size-4" />} onClick={() => dup.mutate()} loading={dup.isPending}>Duplicate</Button>
               {!readOnly && <Button variant="outline" icon={<Trash2 className="size-4" />} onClick={() => setConfirm(true)}>Delete</Button>}
             </>
@@ -296,7 +298,6 @@ export default function TeamEditor() {
         </SaveBar>
       )}
       <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => del.mutate()} loading={del.isPending} title="Delete this team?" description="Automations and workflows that use it will fail." />
-      {!isNew && team.data && <RunLauncher open={runOpen} onClose={() => setRunOpen(false)} targetType="team" targetId={team.data.id} targetName={team.data.name} />}
     </Page>
   );
 }

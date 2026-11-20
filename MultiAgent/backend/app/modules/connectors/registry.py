@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ...models import Connection
-from ...security import decrypt_json
-from ..tools.base import RuntimeTool, ToolResult, sanitize_name
-from .base import Connector
-from .catalog import STATIC_CONNECTORS
-from .mcp_connector import MCP
+from app.core.security import decrypt_json
+from app.engine.tools.base import RuntimeTool, ToolResult, sanitize_name
+from app.modules.connectors.base import Connector
+from app.modules.connectors.catalog import STATIC_CONNECTORS
+from app.modules.connectors.mcp_connector import MCP
+from app.modules.connectors.models import Connection
 
 if TYPE_CHECKING:
-    from ..context import RunContext
+    from app.engine.context import RunContext
 
 CONNECTORS: dict[str, Connector] = {c.key: c for c in [*STATIC_CONNECTORS, MCP]}
 

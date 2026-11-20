@@ -1,16 +1,18 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessagesSquare, Play, Plus, Users } from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import type { Agent, Team } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-import { useAgents, useTeams } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, EmptyState, PageLoader, Tabs } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
-import { Grid, ResourceCard, ScopeBadge } from "@/components/library";
-import { RunLauncher } from "@/components/run/RunLauncher";
+import { useAuth } from "@/shared/lib/auth";
+import type { Agent } from "@/modules/agents/types";
+import type { Team } from "@/modules/teams/types";
+import { timeAgo } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useTeams } from "@/modules/teams/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, EmptyState, PageLoader, Tabs } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
+import { Grid, ResourceCard, ScopeBadge } from "@/shared/components/library";
+import { withReturn } from "@/shared/hooks/useReturnTo";
 import { styleMeta } from "./styles";
 
 export function MemberStack({ team, agents, max = 5 }: { team: Team; agents: Record<string, Agent>; max?: number }) {
@@ -35,7 +37,6 @@ export default function TeamsList() {
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [scope, setScope] = useState<"all" | "org" | "global">("all");
-  const [running, setRunning] = useState<Team | null>(null);
   const agentMap = useMemo(() => Object.fromEntries((agents.data ?? []).map((a) => [a.id, a])), [agents.data]);
 
   const items = (teams.data ?? []).filter(
@@ -110,7 +111,7 @@ export default function TeamsList() {
                         title="Run team"
                         onClick={(e) => {
                           e.preventDefault();
-                          setRunning(t);
+                          nav(withReturn(`/runs/new?target_type=team&target_id=${t.id}`, "/teams"));
                         }}
                       >
                         <Play className="size-3.5" />
@@ -123,7 +124,6 @@ export default function TeamsList() {
           })}
         </Grid>
       )}
-      {running && <RunLauncher open={!!running} onClose={() => setRunning(null)} targetType="team" targetId={running.id} targetName={running.name} />}
     </Page>
   );
 }

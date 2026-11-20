@@ -4,11 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, filter_visible_ids, get_org_ctx, get_project, get_visible, require_role
-from ..engine import learning, runs as run_engine
-from ..models import Agent, Conversation, Message, Skill, Team
-from ..schemas import ConversationIn, ConversationOut, ConversationUpdate, FeedbackIn, MessageIn, MessageOut, RunOut
+from app.core.db import get_session
+from app.core.deps import OrgContext, filter_visible_ids, get_org_ctx, get_project, get_visible, require_role
+from app.modules.agents.models import Agent
+from app.modules.chat.models import Conversation, Message
+from app.modules.chat.schemas import ConversationIn, ConversationOut, ConversationUpdate, FeedbackIn, MessageIn, MessageOut
+from app.modules.runs import service as run_engine
+from app.modules.runs.schemas import RunOut
+from app.modules.skills.models import Skill
+from app.modules.teams.models import Team
+from app.modules.training import learning
 
 router = APIRouter(prefix="/conversations", tags=["chat"])
 

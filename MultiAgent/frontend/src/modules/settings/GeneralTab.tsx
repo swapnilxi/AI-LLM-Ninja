@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Save } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import { cn, formatNumber } from "@/lib/utils";
-import { useAction, useProviders } from "@/hooks/useData";
-import { Button, Card, CardHeader, Field, Input, Select, Textarea } from "@/components/ui/primitives";
-import { MultiSelect } from "@/components/ui/inputs";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import { cn, formatNumber } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useProviders } from "@/modules/settings/api";
+import { Button, Card, CardHeader, Field, Input, Select, Textarea } from "@/shared/ui/primitives";
+import { MultiSelect } from "@/shared/ui/inputs";
 
 interface Usage {
   tokens_today: number;

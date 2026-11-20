@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import Integer
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, audit, get_org_ctx, get_visible, get_writable, require_role
-from ..engine import learning
-from ..models import Agent, Conversation, Lesson, Memory, Organization
-from ..schemas import LessonIn, LessonOut, LessonUpdate, ReflectIn, SkillOut, TrainingSettingsIn
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, get_org_ctx, get_visible, get_writable, require_role
+from app.modules.agents.models import Agent
+from app.modules.chat.models import Conversation
+from app.modules.knowledge.models import Document, Memory
+from app.modules.orgs.models import Organization
+from app.modules.skills.schemas import SkillOut
+from app.modules.training import learning
+from app.modules.training.models import Lesson
+from app.modules.training.schemas import LessonIn, LessonOut, LessonUpdate, ReflectIn, TrainingSettingsIn
 
 router = APIRouter(tags=["training"])
 
@@ -25,17 +31,67 @@ async def _lesson(session: AsyncSession, ctx: OrgContext, lesson_id: str) -> Les
     return row
 
 
+@router.get("/training/agents")
+async def training_grid(ctx: OrgContext = Depends(get_org_ctx), session: AsyncSession = Depends(get_session)):
+    """Per-agent training stats for every agent visible to this org, in one request (for the Training picker)."""
+    stats: dict[str, dict[str, int]] = {}
+
+    def row(agent_id: str) -> dict[str, int]:
+        return stats.setdefault(agent_id, {"documents": 0, "chunks": 0, "pending": 0, "approved": 0, "memories": 0})
+
+    docs = await session.execute(
+        select(Document.owner_id, func.count(), func.coalesce(func.sum(Document.chunk_count), 0))
+        .where(Document.org_id == ctx.org_id, Document.owner_type == "agent")
+        .group_by(Document.owner_id)
+    )
+    for agent_id, n, chunks in docs.all():
+        row(agent_id).update(documents=int(n), chunks=int(chunks or 0))
+    lessons = await session.execute(
+        select(Lesson.agent_id, Lesson.status, func.count())
+        .where(Lesson.org_id == ctx.org_id, Lesson.status.in_(["pending", "approved"]))
+        .group_by(Lesson.agent_id, Lesson.status)
+    )
+    for agent_id, status, n in lessons.all():
+        row(agent_id)[status] = int(n)
+    mems = await session.execute(
+        select(Memory.agent_id, func.count()).where(Memory.org_id == ctx.org_id, Memory.scope == "agent", Memory.agent_id.is_not(None)).group_by(Memory.agent_id)
+    )
+    for agent_id, n in mems.all():
+        row(agent_id)["memories"] = int(n)
+    return stats
+
+
 @router.get("/agents/{agent_id}/training")
 async def training_overview(agent_id: str, ctx: OrgContext = Depends(get_org_ctx), session: AsyncSession = Depends(get_session)):
     agent = await _agent(session, ctx, agent_id)
-    rows = (await session.execute(select(Lesson.status).where(Lesson.org_id == ctx.org_id, Lesson.agent_id == agent.id))).scalars().all()
+    rows = (await session.execute(select(Lesson.status, Lesson.kind).where(Lesson.org_id == ctx.org_id, Lesson.agent_id == agent.id))).all()
+    statuses = [r[0] for r in rows]
+    kinds: dict[str, int] = {"rule": 0, "fact": 0, "example": 0, "correction": 0}
+    for status, kind in rows:
+        if status == "approved":
+            kinds[kind or "rule"] = kinds.get(kind or "rule", 0) + 1
+    n_docs, n_chunks, n_pinned, n_bytes = (
+        await session.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(Document.chunk_count), 0),
+                func.coalesce(func.sum(func.cast(Document.pinned, Integer)), 0),
+                func.coalesce(func.sum(Document.size), 0),
+            ).where(Document.org_id == ctx.org_id, Document.owner_type == "agent", Document.owner_id == agent.id)
+        )
+    ).one()
     return {
         "auto_learn": bool((agent.settings or {}).get("auto_learn")),
         "can_configure": agent.org_id is not None or ctx.user.is_superadmin,
-        "pending": rows.count("pending"),
-        "approved": rows.count("approved"),
-        "rejected": rows.count("rejected"),
+        "pending": statuses.count("pending"),
+        "approved": statuses.count("approved"),
+        "rejected": statuses.count("rejected"),
+        "approved_by_kind": kinds,
         "memories": await learning.agent_memory_count(session, ctx.org_id, agent.id),
+        "documents": int(n_docs),
+        "chunks": int(n_chunks or 0),
+        "pinned_documents": int(n_pinned or 0),
+        "document_bytes": int(n_bytes or 0),
     }
 
 
@@ -65,7 +121,12 @@ async def list_lessons(
 async def teach(agent_id: str, body: LessonIn, request: Request, ctx: OrgContext = Depends(require_role("member")), session: AsyncSession = Depends(get_session)):
     """Teach the agent directly: the lesson is approved immediately and saved as agent memory."""
     agent = await _agent(session, ctx, agent_id)
-    row = Lesson(org_id=ctx.org_id, agent_id=agent.id, status="pending", source="user", title=body.title.strip() or " ".join(body.content.split()[:6]), content=body.content.strip())
+    prompt = (body.prompt or "").strip() or None
+    default_title = " ".join(((prompt if body.kind == "example" else None) or body.content).split()[:6])[:120]
+    row = Lesson(
+        org_id=ctx.org_id, agent_id=agent.id, status="pending", source="user", kind=body.kind,
+        title=body.title.strip() or default_title, content=body.content.strip(), prompt=prompt,
+    )
     session.add(row)
     try:
         await learning.approve(session, row, agent, source="user")
@@ -85,6 +146,12 @@ async def edit_lesson(lesson_id: str, body: LessonUpdate, ctx: OrgContext = Depe
         row.content = body.content.strip()
     if body.title is not None:
         row.title = body.title.strip()
+    if body.kind is not None:
+        row.kind = body.kind
+    if body.prompt is not None:
+        row.prompt = body.prompt.strip() or None
+    if row.kind == "example" and not row.prompt:
+        raise HTTPException(400, "A Q&A example needs a question")
     await session.commit()
     return row
 

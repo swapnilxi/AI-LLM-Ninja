@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Bot, Users } from "lucide-react";
-import type { Agent, Team } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { useAgents, useTeams } from "@/hooks/useData";
-import { Dialog } from "@/components/ui/overlay";
-import { Badge, Spinner, Tabs } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
+import type { Agent } from "@/modules/agents/types";
+import type { Team } from "@/modules/teams/types";
+import { cn } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useTeams } from "@/modules/teams/api";
+import { Badge, Spinner, Tabs } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
 
 export type ChatTarget = { type: "agent" | "team"; id: string };
 
@@ -58,19 +59,5 @@ export function TargetList({ onPick, compact }: { onPick: (t: ChatTarget) => voi
         </div>
       )}
     </div>
-  );
-}
-
-export function NewChatDialog({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (t: ChatTarget) => void }) {
-  return (
-    <Dialog open={open} onClose={onClose} title="Start a new chat" description="Pick an agent or a team. The chat runs inside your active project." size="xl">
-      <TargetList
-        compact
-        onPick={(t) => {
-          onPick(t);
-          onClose();
-        }}
-      />
-    </Dialog>
   );
 }

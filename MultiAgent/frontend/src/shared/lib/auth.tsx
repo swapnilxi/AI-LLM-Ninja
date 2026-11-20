@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { http, session } from "./api";
-import type { AuthResponse, Org, Project, Role, User } from "./types";
+import type { AuthResponse, Org, Role, User } from "@/shared/lib/types";
+import type { Project } from "@/modules/projects/types";
 
 const RANK: Record<Role, number> = { viewer: 0, member: 1, admin: 2, owner: 3 };
 

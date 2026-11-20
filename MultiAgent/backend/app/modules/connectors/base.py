@@ -10,11 +10,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from ..net import NetPolicy, safe_request
-from ..tools.base import ToolResult
+from app.engine.net import NetPolicy, safe_request
+from app.engine.tools.base import ToolResult
 
 if TYPE_CHECKING:
-    from ..context import RunContext
+    from app.engine.context import RunContext
 
 ActionHandler = Callable[[dict[str, Any], dict[str, Any], "RunContext | None"], Awaitable[ToolResult]]
 

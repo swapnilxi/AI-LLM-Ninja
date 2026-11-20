@@ -12,8 +12,8 @@ import shlex
 from dataclasses import dataclass, field
 from urllib.parse import quote, urlparse
 
-from ..config import settings
-from .net import BlockedURL, NetPolicy, safe_request
+from app.core.config import settings
+from app.engine.net import BlockedURL, NetPolicy, safe_request
 
 DEFAULT_REPO = "anthropics/skills"  # where a bare name like `pdf` is looked up
 MAX_SKILLS_PER_INSTALL = 20

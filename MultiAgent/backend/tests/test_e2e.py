@@ -255,7 +255,7 @@ def test_sse_stream(ctx):
 def test_automations_webhook_and_interval(ctx, client):
     api, project, lib = ctx["api"], ctx["project"], ctx["lib"]
     auto = api.post(
-        "/api/automations",
+        "/api/schedules",
         {"project_id": project["id"], "name": "Hook", "target_type": "agent", "target_id": lib["agents"]["Writer"]["id"], "trigger_type": "webhook", "input": {"message": "Hi"}},
     ).json()
     assert auto["webhook_url"] and "/api/hooks/whk_" in auto["webhook_url"]
@@ -263,20 +263,19 @@ def test_automations_webhook_and_interval(ctx, client):
     hook = client.post(path, json={"message": "Summarise: webhook works"}, params={"wait": "true"})
     assert hook.status_code == 200 and hook.json()["status"] == "succeeded", hook.text
     assert client.post("/api/hooks/whk_invalid", json={}).status_code == 404
-    bad_cron = api.post("/api/automations", {"project_id": project["id"], "name": "x", "target_type": "agent", "target_id": lib["agents"]["Writer"]["id"], "trigger_type": "schedule", "cron": "nope"})
+    bad_cron = api.post("/api/schedules", {"project_id": project["id"], "name": "x", "target_type": "agent", "target_id": lib["agents"]["Writer"]["id"], "trigger_type": "schedule", "cron": "nope"})
     assert bad_cron.status_code == 400
     sched = api.post(
-        "/api/automations",
+        "/api/schedules",
         {"project_id": project["id"], "name": "Every 5", "target_type": "agent", "target_id": lib["agents"]["Writer"]["id"], "trigger_type": "interval", "interval_minutes": 5},
     ).json()
     assert sched["next_run_at"]
     # force it due and tick the scheduler
-    import asyncio
     from datetime import datetime, timedelta, timezone
 
-    from app.db import SessionLocal
-    from app.engine.scheduler import tick
-    from app.models import Automation
+    from app.core.db import SessionLocal
+    from app.modules.scheduler.models import Automation
+    from app.modules.scheduler.service import tick
 
     async def make_due():
         async with SessionLocal() as s:

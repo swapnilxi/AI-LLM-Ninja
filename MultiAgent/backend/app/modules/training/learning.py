@@ -15,11 +15,17 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import SessionLocal
-from ..models import Agent, Conversation, Lesson, Memory, Message, Organization, Run, Skill
-from .knowledge import tokenize
-from .llm.base import LLMError, ModelSettings
-from .llm.registry import get_provider, resolve_model
+from app.core.db import SessionLocal
+from app.engine.llm.base import LLMError, ModelSettings
+from app.engine.llm.registry import get_provider, resolve_model
+from app.modules.agents.models import Agent
+from app.modules.chat.models import Message
+from app.modules.knowledge.models import Memory
+from app.modules.knowledge.service import tokenize
+from app.modules.orgs.models import Organization
+from app.modules.runs.models import Run
+from app.modules.skills.models import Skill
+from app.modules.training.models import Lesson
 
 log = logging.getLogger("agentforge.learning")
 
@@ -134,7 +140,7 @@ async def propose(
         if pending + len(created) >= MAX_PENDING or any(similar(text, k) for k in known):
             continue
         row = Lesson(
-            org_id=org_id, agent_id=agent_id, status="pending", source=source, title=it.get("title", "")[:120], content=text,
+            org_id=org_id, agent_id=agent_id, status="pending", source=source, kind="rule", title=it.get("title", "")[:120], content=text,
             rationale=it.get("why", ""), conversation_id=conversation_id, message_id=message_id, run_id=run_id,
         )
         session.add(row)
@@ -145,11 +151,35 @@ async def propose(
     return created
 
 
+KIND_LABELS = {"rule": "Rule", "fact": "Fact", "example": "Example", "correction": "Correction"}
+
+
+def memory_text(lesson: Lesson) -> str:
+    """How a lesson reads inside the agent's memory (and therefore its prompt)."""
+    kind = lesson.kind or "rule"
+    content = (lesson.content or "").strip()
+    prompt = (lesson.prompt or "").strip()
+    if kind == "example" and prompt:
+        return f'Example of an ideal answer. When asked something like: "{prompt}"\nAnswer like this: {content}'
+    if kind == "correction":
+        return f'Correction: do not repeat this mistake: "{prompt}". Instead: {content}' if prompt else f"Correction: {content}"
+    if kind == "fact":
+        return f"Fact: {content}"
+    return content
+
+
+def memory_tags(lesson: Lesson) -> list[str]:
+    return [f"kind:{lesson.kind or 'rule'}"]
+
+
 async def approve(session: AsyncSession, lesson: Lesson, agent: Agent, *, source: str = "learned") -> Memory:
     """Turn a lesson into an agent memory (taught/learned memories are always injected, see runner)."""
     if await agent_memory_count(session, lesson.org_id, agent.id) >= MAX_MEMORIES:
         raise ValueError(f"Memory limit reached ({MAX_MEMORIES}). Delete old memories or distill them into a skill first.")
-    mem = Memory(org_id=lesson.org_id, scope="agent", agent_id=agent.id, key=lesson.title, content=lesson.content, source=source, run_id=lesson.run_id)
+    mem = Memory(
+        org_id=lesson.org_id, scope="agent", agent_id=agent.id, key=lesson.title, content=memory_text(lesson), tags=memory_tags(lesson),
+        source=source, run_id=lesson.run_id,
+    )
     session.add(mem)
     await session.flush()
     lesson.status, lesson.memory_id = "approved", mem.id

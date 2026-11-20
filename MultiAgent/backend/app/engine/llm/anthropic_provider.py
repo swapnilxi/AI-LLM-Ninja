@@ -17,7 +17,7 @@ from typing import Any
 import anthropic
 from anthropic import AsyncAnthropic
 
-from .base import LLMError, LLMProvider, LLMResponse, ModelSettings, StreamEvent, ToolCall, Usage
+from app.engine.llm.base import LLMError, LLMProvider, LLMResponse, ModelSettings, StreamEvent, ToolCall, Usage
 
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 _FALLBACK_MODELS = ("claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-fable-5-2")

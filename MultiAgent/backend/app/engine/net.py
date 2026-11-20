@@ -19,7 +19,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
-from ..config import settings
+from app.core.config import settings
 
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) "

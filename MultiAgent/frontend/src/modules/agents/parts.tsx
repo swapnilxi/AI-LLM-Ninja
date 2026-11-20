@@ -1,6 +1,6 @@
-import { Brain, Globe, Library } from "lucide-react";
-import type { Agent } from "@/lib/types";
-import { Badge } from "@/components/ui/primitives";
+import { Brain, Eye, Globe, Library, type LucideIcon } from "lucide-react";
+import type { Agent, AgentSettings } from "@/modules/agents/types";
+import { Badge } from "@/shared/ui/primitives";
 
 export function modelLabel(a: Pick<Agent, "provider" | "model">) {
   if (!a.provider || a.provider === "default") return a.model ? `Org default · ${a.model}` : "Org default";
@@ -20,3 +20,19 @@ export function CapabilityBadges({ agent }: { agent: Agent }) {
   );
 }
 
+
+/** The run launcher page (owned by the runs module). */
+export const runAgentUrl = (id: string) => `/runs/new?target_type=agent&target_id=${encodeURIComponent(id)}`;
+
+/** Training window pages (owned by the training module). */
+export const trainingUrl = (id: string, sub: "" | "ingest" | "teach" | "memory" = "") => `/training/${id}${sub ? `/${sub}` : ""}`;
+
+export const CAPABILITIES: { key: Exclude<keyof AgentSettings, "auto_learn">; label: string; description: string; icon: LucideIcon }[] = [
+  { key: "browser_enabled", label: "Web search & browser", description: "Adds web_search and browse_webpage (JS rendering when available).", icon: Globe },
+  { key: "memory_enabled", label: "Long-term memory", description: "Adds the memory tool and injects this agent's recent memories.", icon: Brain },
+  { key: "knowledge_enabled", label: "Document knowledge", description: "Searches agent, project and organization documents when any exist.", icon: Library },
+  { key: "show_thinking", label: "Show reasoning summaries", description: "Records summarized thinking in the run trace when the model supports it.", icon: Eye },
+];
+
+export const capabilityOn = (settings: AgentSettings | undefined, key: keyof AgentSettings) =>
+  key === "knowledge_enabled" ? settings?.knowledge_enabled !== false : !!settings?.[key];

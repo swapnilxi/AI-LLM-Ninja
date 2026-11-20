@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/utils";
 
 export function PageHeader({ title, description, actions, back, className, icon }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; back?: string; className?: string; icon?: ReactNode }) {
   return (

@@ -14,10 +14,10 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Task
-from .learning import similar
-from .llm.base import LLMError
-from .oneshot import complete, parse_json
+from app.engine.llm.base import LLMError
+from app.engine.oneshot import complete, parse_json
+from app.modules.tasks.models import Task
+from app.modules.training.learning import similar
 
 log = logging.getLogger("agentforge.tasks")
 

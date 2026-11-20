@@ -5,9 +5,13 @@ import logging
 
 from sqlalchemy import select
 
-from .db import SessionLocal
-from .engine.tools.builtin import BUILTINS
-from .models import Agent, Skill, Team, Tool, Workflow
+from app.core.db import SessionLocal
+from app.engine.tools.builtin import BUILTINS
+from app.modules.agents.models import Agent
+from app.modules.skills.models import Skill
+from app.modules.teams.models import Team
+from app.modules.tools.models import Tool
+from app.modules.workflows.models import Workflow
 
 log = logging.getLogger("agentforge.seed")
 

@@ -2,23 +2,23 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Archive, Check, FolderKanban, Globe, GlobeLock, Plus } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Project } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-import { useAction } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Checkbox, EmptyState, Field, Input, PageLoader, Textarea } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { Dialog } from "@/components/ui/overlay";
-import { IconTile } from "@/components/ui/icons";
-import { Grid, ResourceCard } from "@/components/library";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Project } from "@/modules/projects/types";
+import { timeAgo } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, Checkbox, EmptyState, Field, Input, PageLoader, Textarea } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { useReturnTo } from "@/shared/hooks/useReturnTo";
+import { IconTile } from "@/shared/ui/icons";
+import { Grid, ResourceCard } from "@/shared/components/library";
 
 export default function ProjectsList() {
   const { org, projectId, setProjectId, can } = useAuth();
   const [showArchived, setShowArchived] = useState(false);
   const [q, setQ] = useState("");
-  const [creating, setCreating] = useState(false);
+  const nav = useNavigate();
   const projects = useQuery({
     queryKey: ["projects", org?.id, "with-archived"],
     queryFn: () => http.get<Project[]>("/projects?include_archived=true"),
@@ -31,7 +31,7 @@ export default function ProjectsList() {
       <PageHeader
         title="Projects"
         description="Projects give agents their working context: a brief, variables, documents, shared memory, tools, connectors and policies. Agents themselves stay reusable across projects."
-        actions={can("member") && <Button icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>New project</Button>}
+        actions={can("member") && <Button icon={<Plus className="size-4" />} onClick={() => nav("/projects/new")}>New project</Button>}
       />
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Checkbox checked={showArchived} onChange={setShowArchived} label={<span className="text-muted">Show archived</span>} />
@@ -40,7 +40,7 @@ export default function ProjectsList() {
       {projects.isLoading ? (
         <PageLoader />
       ) : items.length === 0 ? (
-        <EmptyState icon={<FolderKanban className="size-5" />} title="No projects found" action={can("member") && <Button onClick={() => setCreating(true)}>New project</Button>} />
+        <EmptyState icon={<FolderKanban className="size-5" />} title="No projects found" action={can("member") && <Button onClick={() => nav("/projects/new")}>New project</Button>} />
       ) : (
         <Grid>
           {items.map((p) => {
@@ -88,48 +88,49 @@ export default function ProjectsList() {
           })}
         </Grid>
       )}
-      <CreateProjectDialog open={creating} onClose={() => setCreating(false)} />
     </Page>
   );
 }
 
-function CreateProjectDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** /projects/new */
+export function NewProjectPage() {
   const nav = useNavigate();
   const { setProjectId } = useAuth();
+  const back = useReturnTo("/projects");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const create = useAction(() => http.post<Project>("/projects", { name, description }), {
     success: "Project created",
     invalidate: [["projects"]],
     onSuccess: (p) => {
-      setName("");
-      setDescription("");
       setProjectId(p.id);
-      onClose();
-      nav(`/projects/${p.id}`);
+      nav(`/projects/${p.id}`, { replace: true });
     },
   });
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="New project"
-      description="You can add a brief, documents, tools and policies next."
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button loading={create.isPending} disabled={!name.trim()} onClick={() => create.mutate()}>Create project</Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Name">
-          <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Q3 market research" />
-        </Field>
-        <Field label="Description">
-          <Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this project about?" />
-        </Field>
-      </div>
-    </Dialog>
+    <Page className="max-w-2xl">
+      <PageHeader back={back} icon={<IconTile icon={FolderKanban} color="indigo" />} title="New project" description="You can add a brief, documents, tools and policies next." />
+      <Card>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim()) create.mutate();
+          }}
+        >
+          <div className="space-y-4 p-4 sm:p-5">
+            <Field label="Name">
+              <Input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Q3 market research" />
+            </Field>
+            <Field label="Description">
+              <Textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What is this project about?" />
+            </Field>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+            <Button type="button" variant="outline" onClick={() => nav(back)}>Cancel</Button>
+            <Button type="submit" loading={create.isPending} disabled={!name.trim()}>Create project</Button>
+          </div>
+        </form>
+      </Card>
+    </Page>
   );
 }

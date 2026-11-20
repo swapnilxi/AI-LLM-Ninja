@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { LogOut, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { http, session } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { AuthResponse } from "@/lib/types";
-import { errMsg, formatDate } from "@/lib/utils";
-import { Button, Card, CardHeader, Field, Input } from "@/components/ui/primitives";
-import { ConfirmDialog } from "@/components/ui/overlay";
+import { http, session } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { AuthResponse } from "@/shared/lib/types";
+import { errMsg, formatDate } from "@/shared/lib/utils";
+import { Button, Card, CardHeader, Field, Input } from "@/shared/ui/primitives";
+import { ConfirmDialog } from "@/shared/ui/overlay";
 
 export function AccountTab() {
   const { user, refresh, logout } = useAuth();

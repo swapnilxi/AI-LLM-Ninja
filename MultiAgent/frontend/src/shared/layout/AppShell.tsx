@@ -1,72 +1,18 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import {
-  Activity,
-  Blocks,
-  Bot,
-  Building2,
-  Check,
-  ChevronsUpDown,
-  Compass,
-  FolderKanban,
-  LayoutDashboard,
-  ListChecks,
-  LogOut,
-  Menu as MenuIcon,
-  MessagesSquare,
-  Moon,
-  Plug,
-  Plus,
-  Search,
-  Settings,
-  Sparkles,
-  Sun,
-  Timer,
-  Users,
-  Workflow as WorkflowIcon,
-  Wrench,
-} from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/utils";
-import { Menu, MenuItem, Sheet } from "@/components/ui/overlay";
-import { useTheme } from "@/hooks/useTheme";
-import { CreateOrgDialog } from "./CreateOrgDialog";
+import { Blocks, Building2, Check, ChevronsUpDown, FolderKanban, LogOut, Menu as MenuIcon, Moon, Plus, Search, Sun } from "lucide-react";
+import { useAuth } from "@/shared/lib/auth";
+import { NAV } from "@/modules/registry";
+import { cn } from "@/shared/lib/utils";
+import { Menu, MenuItem, Sheet } from "@/shared/ui/overlay";
+import { useTheme } from "@/shared/hooks/useTheme";
+import { withReturn } from "@/shared/hooks/useReturnTo";
 import { CommandPalette, usePaletteShortcut } from "./CommandPalette";
 
-const NAV: { section: string; items: { to: string; label: string; icon: ReactNode; end?: boolean }[] }[] = [
-  { section: "", items: [{ to: "/", label: "Dashboard", icon: <LayoutDashboard className="size-4" />, end: true }, { to: "/chat", label: "Chat", icon: <MessagesSquare className="size-4" /> }] },
-  {
-    section: "Build",
-    items: [
-      { to: "/agents", label: "Agents", icon: <Bot className="size-4" /> },
-      { to: "/teams", label: "Teams", icon: <Users className="size-4" /> },
-      { to: "/workflows", label: "Workflows", icon: <WorkflowIcon className="size-4" /> },
-      { to: "/skills", label: "Skills", icon: <Sparkles className="size-4" /> },
-      { to: "/tools", label: "Tools", icon: <Wrench className="size-4" /> },
-      { to: "/connectors", label: "Connectors", icon: <Plug className="size-4" /> },
-      { to: "/discover", label: "Discover", icon: <Compass className="size-4" /> },
-    ],
-  },
-  {
-    section: "Operate",
-    items: [
-      { to: "/tasks", label: "Tasks", icon: <ListChecks className="size-4" /> },
-      { to: "/automations", label: "Automations", icon: <Timer className="size-4" /> },
-      { to: "/runs", label: "Runs", icon: <Activity className="size-4" /> },
-    ],
-  },
-  {
-    section: "Workspace",
-    items: [
-      { to: "/projects", label: "Projects", icon: <FolderKanban className="size-4" /> },
-      { to: "/settings", label: "Settings", icon: <Settings className="size-4" /> },
-    ],
-  },
-];
-
-function OrgSwitcher({ onCreate }: { onCreate: () => void }) {
+function OrgSwitcher() {
   const { org, orgs, switchOrg } = useAuth();
   const nav = useNavigate();
+  const loc = useLocation();
   return (
     <Menu
       align="left"
@@ -106,7 +52,7 @@ function OrgSwitcher({ onCreate }: { onCreate: () => void }) {
             icon={<Plus className="size-4" />}
             onClick={() => {
               close();
-              onCreate();
+              nav(withReturn("/settings/organizations/new", loc.pathname + loc.search));
             }}
           >
             New organization
@@ -165,7 +111,7 @@ export function ProjectSwitcher({ compact }: { compact?: boolean }) {
   );
 }
 
-function SidebarContent({ onNavigate, onCreateOrg }: { onNavigate?: () => void; onCreateOrg: () => void }) {
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
   return (
@@ -175,7 +121,7 @@ function SidebarContent({ onNavigate, onCreateOrg }: { onNavigate?: () => void; 
         <span className="text-[15px] font-semibold tracking-tight">AgentForge</span>
       </div>
       <div className="px-2 pb-2">
-        <OrgSwitcher onCreate={onCreateOrg} />
+        <OrgSwitcher />
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
         {NAV.map((g) => (
@@ -194,7 +140,7 @@ function SidebarContent({ onNavigate, onCreateOrg }: { onNavigate?: () => void; 
                   )
                 }
               >
-                {it.icon}
+                <it.icon className="size-4" />
                 {it.label}
               </NavLink>
             ))}
@@ -222,7 +168,6 @@ function SidebarContent({ onNavigate, onCreateOrg }: { onNavigate?: () => void; 
 
 export function AppShell() {
   const [drawer, setDrawer] = useState(false);
-  const [createOrg, setCreateOrg] = useState(false);
   const [palette, setPalette] = useState(false);
   usePaletteShortcut(setPalette);
   const loc = useLocation();
@@ -232,10 +177,10 @@ export function AppShell() {
   return (
     <div className="flex h-dvh overflow-hidden">
       <aside className="surface-glass hidden w-60 shrink-0 border-r border-border lg:block">
-        <SidebarContent onCreateOrg={() => setCreateOrg(true)} />
+        <SidebarContent />
       </aside>
       <Sheet open={drawer} onClose={() => setDrawer(false)} side="left" width="w-[280px]">
-        <SidebarContent onNavigate={() => setDrawer(false)} onCreateOrg={() => setCreateOrg(true)} />
+        <SidebarContent onNavigate={() => setDrawer(false)} />
       </Sheet>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="surface-glass flex h-14 shrink-0 items-center gap-2 border-b border-border px-3 sm:px-4">
@@ -261,7 +206,6 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
-      <CreateOrgDialog open={createOrg} onClose={() => setCreateOrg(false)} />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>
   );

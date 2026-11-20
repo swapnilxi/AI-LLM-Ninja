@@ -1,8 +1,12 @@
 import { useMemo } from "react";
 import { Trash2, WandSparkles } from "lucide-react";
-import type { Agent, Catalog, ProviderInfo, Team, Tool } from "@/lib/types";
-import { Button, Checkbox, Field, Input, Select, Textarea } from "@/components/ui/primitives";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
+import type { Agent } from "@/modules/agents/types";
+import type { Catalog } from "@/shared/lib/types";
+import type { ProviderInfo } from "@/modules/settings/types";
+import type { Team } from "@/modules/teams/types";
+import type { Tool } from "@/modules/tools/types";
+import { Button, Checkbox, Field, Input, Select, Textarea } from "@/shared/ui/primitives";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
 import { NODE_META, type FlowNode, type NodeData } from "./nodes";
 
 export function TemplateHelp({ nodeIds }: { nodeIds: string[] }) {

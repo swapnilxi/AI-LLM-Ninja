@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, audit, get_org_ctx, require_role
-from ..engine.connectors.registry import CONNECTORS, connection_config, connection_tools
-from ..models import Connection
-from ..schemas import ConnectionIn, ConnectionUpdate
-from ..security import encrypt_json, mask
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, get_org_ctx, require_role
+from app.core.security import encrypt_json, mask
+from app.modules.connectors.models import Connection
+from app.modules.connectors.registry import CONNECTORS, connection_config, connection_tools
+from app.modules.connectors.schemas import ConnectionIn, ConnectionUpdate
 
 router = APIRouter(tags=["connectors"])
 

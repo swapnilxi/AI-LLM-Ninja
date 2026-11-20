@@ -21,17 +21,18 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { http, qs } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { HubKnowledge, HubSkillPack, RegistrySkill, Trust } from "@/lib/types";
-import { cn, errMsg, formatNumber } from "@/lib/utils";
-import { useAction, useHub } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, EmptyState, PageLoader, Spinner, Switch, Tabs } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { IconTile } from "@/components/ui/icons";
-import { Grid } from "@/components/library";
-import { McpServerGrid } from "@/components/hub/McpServers";
+import { http, qs } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { HubKnowledge, HubSkillPack, RegistrySkill, Trust } from "@/modules/discover/types";
+import { cn, errMsg, formatNumber } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useHub } from "@/modules/discover/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, EmptyState, PageLoader, Spinner, Switch, Tabs } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { IconTile } from "@/shared/ui/icons";
+import { Grid } from "@/shared/components/library";
+import { McpServerGrid } from "@/modules/discover/McpServers";
 
 type Tab = "skills" | "connectors" | "knowledge";
 

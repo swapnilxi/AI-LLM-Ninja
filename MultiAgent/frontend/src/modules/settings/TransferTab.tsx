@@ -2,12 +2,16 @@ import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, Download, FileJson, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import { cn, errMsg } from "@/lib/utils";
-import { useAgents, useSkills, useTeams, useTools, useWorkflows } from "@/hooks/useData";
-import { Badge, Button, Card, CardHeader, Checkbox, Tabs } from "@/components/ui/primitives";
-import { MultiSelect } from "@/components/ui/inputs";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import { cn, errMsg } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useSkills } from "@/modules/skills/api";
+import { useTeams } from "@/modules/teams/api";
+import { useTools } from "@/modules/tools/api";
+import { useWorkflows } from "@/modules/workflows/api";
+import { Badge, Button, Card, CardHeader, Checkbox, Tabs } from "@/shared/ui/primitives";
+import { MultiSelect } from "@/shared/ui/inputs";
 
 type Kind = "agent_ids" | "team_ids" | "workflow_ids" | "skill_ids" | "tool_ids";
 

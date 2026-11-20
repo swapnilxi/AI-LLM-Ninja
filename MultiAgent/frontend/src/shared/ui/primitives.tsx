@@ -1,6 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/utils";
 
 /* ------------------------------------------------------------------ Button */
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "outline";

@@ -1,14 +1,18 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Trash2, UserPlus, Users } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Member, Role } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-import { useAction } from "@/hooks/useData";
-import { ConfirmDialog, Dialog } from "@/components/ui/overlay";
-import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageLoader, Select } from "@/components/ui/primitives";
-import { CopyButton } from "@/components/ui/inputs";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Member } from "@/modules/settings/types";
+import type { Role } from "@/shared/lib/types";
+import { timeAgo } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { ConfirmDialog } from "@/shared/ui/overlay";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { IconTile } from "@/shared/ui/icons";
+import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageLoader, Select } from "@/shared/ui/primitives";
+import { CopyButton } from "@/shared/ui/inputs";
 
 const ROLES: { key: Role; label: string; text: string }[] = [
   { key: "owner", label: "Owner", text: "Full control, including deleting the org" },
@@ -22,7 +26,7 @@ export function MembersTab() {
   const admin = can("admin");
   const owner = org?.role === "owner";
   const members = useQuery({ queryKey: ["members"], queryFn: () => http.get<Member[]>("/org/members") });
-  const [adding, setAdding] = useState(false);
+  const nav = useNavigate();
   const [removing, setRemoving] = useState<Member | null>(null);
   const update = useAction((v: { id: string; role: Role }) => http.patch(`/org/members/${v.id}`, { role: v.role }), { success: "Role updated", invalidate: [["members"]] });
   const remove = useAction((id: string) => http.del(`/org/members/${id}`), { success: "Member removed", invalidate: [["members"]], onSuccess: () => setRemoving(null) });
@@ -36,7 +40,7 @@ export function MembersTab() {
       <CardHeader
         title="Members"
         description={`${list.length} ${list.length === 1 ? "person" : "people"} in this organization`}
-        actions={admin && <Button size="sm" icon={<UserPlus className="size-3.5" />} onClick={() => setAdding(true)}>Add member</Button>}
+        actions={admin && <Button size="sm" icon={<UserPlus className="size-3.5" />} onClick={() => nav("/settings/members/new")}>Add member</Button>}
       />
       {list.length === 0 ? (
         <EmptyState icon={<Users className="size-5" />} title="No members" className="m-4 border-0" />
@@ -76,7 +80,6 @@ export function MembersTab() {
           ))}
         </ul>
       )}
-      <AddMemberDialog open={adding} onClose={() => setAdding(false)} allowOwner={owner} />
       <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(null)}
@@ -90,12 +93,17 @@ export function MembersTab() {
   );
 }
 
-function AddMemberDialog({ open, onClose, allowOwner }: { open: boolean; onClose: () => void; allowOwner: boolean }) {
+/** /settings/members/new */
+export function NewMemberPage() {
+  const { org } = useAuth();
+  const allowOwner = org?.role === "owner";
+  const nav = useNavigate();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Role>("member");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [temp, setTemp] = useState<{ email: string; password: string } | null>(null);
+  const done = () => nav("/settings/members");
   const add = useAction(
     () => http.post<Member & { temporary_password?: string }>("/org/members", { email, role, name: name || undefined, password: password || undefined }),
     {
@@ -103,75 +111,76 @@ function AddMemberDialog({ open, onClose, allowOwner }: { open: boolean; onClose
       invalidate: [["members"]],
       onSuccess: (res) => {
         if (res.temporary_password) setTemp({ email: res.email, password: res.temporary_password });
-        else close();
+        else done();
       },
     },
   );
-  const close = () => {
-    setEmail("");
-    setName("");
-    setPassword("");
-    setRole("member");
-    setTemp(null);
-    onClose();
-  };
   return (
-    <Dialog
-      open={open}
-      onClose={close}
-      title={temp ? "Share these sign-in details" : "Add member"}
-      description={temp ? "This temporary password is shown only once. Ask them to change it after signing in." : "Existing users are added directly. New users get an account with the password you set (or a generated one)."}
-      footer={
-        temp ? (
-          <Button onClick={close}>Done</Button>
-        ) : (
+    <Page className="max-w-2xl">
+      <PageHeader
+        back="/settings/members"
+        icon={<IconTile icon={UserPlus} color="indigo" />}
+        title={temp ? "Share these sign-in details" : "Add member"}
+        description={temp ? "This temporary password is shown only once. Ask them to change it after signing in." : "Existing users are added directly. New users get an account with the password you set (or a generated one)."}
+      />
+      <Card>
+        {temp ? (
           <>
-            <Button variant="outline" onClick={close}>Cancel</Button>
-            <Button loading={add.isPending} disabled={!email.trim()} onClick={() => add.mutate()}>Add member</Button>
+            <div className="space-y-3 p-4 sm:p-5">
+              <Field label="Email"><Input readOnly value={temp.email} /></Field>
+              <Field label="Temporary password">
+                <div className="flex gap-2">
+                  <Input readOnly value={temp.password} className="font-mono" />
+                  <CopyButton text={temp.password} />
+                </div>
+              </Field>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+              <Button onClick={done}>Done</Button>
+            </div>
           </>
-        )
-      }
-    >
-      {temp ? (
-        <div className="space-y-3">
-          <Field label="Email"><Input readOnly value={temp.email} /></Field>
-          <Field label="Temporary password">
-            <div className="flex gap-2">
-              <Input readOnly value={temp.password} className="font-mono" />
-              <CopyButton text={temp.password} />
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (email.trim()) add.mutate();
+            }}
+          >
+            <div className="space-y-4 p-4 sm:p-5">
+              <Field label="Email">
+                <Input type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com" />
+              </Field>
+              <Field label="Role">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {ROLES.filter((r) => allowOwner || r.key !== "owner").map((r) => (
+                    <button
+                      key={r.key}
+                      type="button"
+                      onClick={() => setRole(r.key)}
+                      className={`cursor-pointer rounded-lg border p-2.5 text-left transition-colors ${role === r.key ? "border-primary bg-primary-soft" : "border-border hover:bg-surface-2"}`}
+                    >
+                      <div className="text-sm font-medium">{r.label}</div>
+                      <div className="text-xs text-muted">{r.text}</div>
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Name (new users)">
+                  <Input value={name} onChange={(e) => setName(e.target.value)} />
+                </Field>
+                <Field label="Password (optional)" hint="Leave empty to generate one">
+                  <Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                </Field>
+              </div>
             </div>
-          </Field>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <Field label="Email">
-            <Input type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com" />
-          </Field>
-          <Field label="Role">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {ROLES.filter((r) => allowOwner || r.key !== "owner").map((r) => (
-                <button
-                  key={r.key}
-                  type="button"
-                  onClick={() => setRole(r.key)}
-                  className={`cursor-pointer rounded-lg border p-2.5 text-left transition-colors ${role === r.key ? "border-primary bg-primary-soft" : "border-border hover:bg-surface-2"}`}
-                >
-                  <div className="text-sm font-medium">{r.label}</div>
-                  <div className="text-xs text-muted">{r.text}</div>
-                </button>
-              ))}
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+              <Button type="button" variant="outline" onClick={done}>Cancel</Button>
+              <Button type="submit" loading={add.isPending} disabled={!email.trim()}>Add member</Button>
             </div>
-          </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name (new users)">
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-            <Field label="Password (optional)" hint="Leave empty to generate one">
-              <Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </Field>
-          </div>
-        </div>
-      )}
-    </Dialog>
+          </form>
+        )}
+      </Card>
+    </Page>
   );
 }

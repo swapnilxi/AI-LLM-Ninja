@@ -2,9 +2,11 @@ import { createContext, memo, useContext } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import type { LucideIcon } from "lucide-react";
 import { Bot, Braces, CircleCheck, CircleX, Cpu, FileText, Flag, GitBranch, LoaderCircle, LogIn, SkipForward, Users, Wrench } from "lucide-react";
-import type { Agent, Team, Tool } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
+import type { Agent } from "@/modules/agents/types";
+import type { Team } from "@/modules/teams/types";
+import type { Tool } from "@/modules/tools/types";
+import { cn } from "@/shared/lib/utils";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
 
 export type NodeData = Record<string, any>;
 export type FlowNode = Node<NodeData>;

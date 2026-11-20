@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, Copy, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/utils";
 import { Badge, Button, Input, Textarea } from "./primitives";
 
 export interface Option {

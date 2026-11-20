@@ -1,23 +1,45 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { Copy, Save, Slash, Trash2 } from "lucide-react";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Skill } from "@/lib/types";
-import { useAction, useSkill, useTools } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Button, Card, CardHeader, Field, Input, PageLoader, Textarea } from "@/components/ui/primitives";
-import { MultiSelect, TagInput } from "@/components/ui/inputs";
-import { ConfirmDialog } from "@/components/ui/overlay";
-import { Markdown } from "@/components/ui/Markdown";
-import { GlobalNotice, SaveBar, ScopeBadge } from "@/components/library";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { Copy, Link2, Save, Slash, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { http } from "@/shared/lib/api";
+import { errMsg } from "@/shared/lib/utils";
+import { useAuth } from "@/shared/lib/auth";
+import type { Skill } from "@/modules/skills/types";
+import type { Agent } from "@/modules/agents/types";
+import type { Conversation } from "@/modules/chat/types";
+import { useAgent } from "@/modules/agents/api";
+import { useReturnTo } from "@/shared/hooks/useReturnTo";
+import { useAction } from "@/shared/hooks/useAction";
+import { useSkill } from "@/modules/skills/api";
+import { useTools } from "@/modules/tools/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Button, Card, CardHeader, Field, Input, PageLoader, Textarea } from "@/shared/ui/primitives";
+import { MultiSelect, TagInput } from "@/shared/ui/inputs";
+import { ConfirmDialog } from "@/shared/ui/overlay";
+import { Markdown } from "@/shared/ui/Markdown";
+import { GlobalNotice, SaveBar, ScopeBadge } from "@/shared/components/library";
 
 const EMPTY = { name: "", description: "", instructions: "", tool_ids: [] as string[], tags: [] as string[], command: "", argument_hint: "", command_template: "" };
 
+/**
+ * /skills/:id and /skills/new. New skills accept:
+ *   ?attach_agent=<agentId>         append the created skill to that agent's skill_ids
+ *   ?attach_conversation=<convId>   append it to that chat's skills
+ *   ?return_to=<path>               where to go after saving / on cancel (default: the new skill's page)
+ */
 export default function SkillEditor() {
   const { id } = useParams();
   const isNew = id === "new";
   const nav = useNavigate();
+  const qc = useQueryClient();
+  const [params] = useSearchParams();
+  const attachAgent = isNew ? params.get("attach_agent") : null;
+  const attachConversation = isNew ? params.get("attach_conversation") : null;
+  const hasReturn = !!params.get("return_to");
+  const returnTo = useReturnTo("/skills");
+  const agentToAttach = useAgent(attachAgent ?? undefined);
   const { can, user } = useAuth();
   const skill = useSkill(id);
   const tools = useTools();
@@ -41,11 +63,46 @@ export default function SkillEditor() {
 
   const readOnly = !can("member") || (!!skill.data && skill.data.org_id === null && !user?.is_superadmin);
   const payload = () => ({ ...form, command: form.command.trim() || null });
-  const save = useAction(() => (isNew ? http.post<Skill>("/skills", payload()) : http.put<Skill>(`/skills/${id}`, payload())), {
-    success: "Skill saved",
-    invalidate: [["skills"]],
-    onSuccess: (s) => isNew && nav(`/skills/${s.id}`, { replace: true }),
-  });
+  /** Attach a freshly created skill to the agent / conversation named in the URL. */
+  const attach = async (s: Skill) => {
+    if (attachAgent) {
+      const a = await http.get<Agent>(`/agents/${attachAgent}`);
+      if (!a.skill_ids.includes(s.id)) {
+        // full-body PUT, exactly like the agent editor
+        await http.put<Agent>(`/agents/${attachAgent}`, { ...a, skill_ids: [...a.skill_ids, s.id] });
+      }
+      // drop the cached agent so the page we return to loads it fresh (with the new skill) instead of flashing stale data
+      qc.removeQueries({ queryKey: ["agents", attachAgent] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+    }
+    if (attachConversation) {
+      const { conversation: c } = await http.get<{ conversation: Conversation }>(`/conversations/${attachConversation}`);
+      const ids = c.skill_ids ?? [];
+      if (!ids.includes(s.id)) await http.patch(`/conversations/${attachConversation}`, { skill_ids: [...ids, s.id] });
+      qc.removeQueries({ queryKey: ["conversation", attachConversation] });
+    }
+  };
+  const save = useAction(
+    async () => {
+      if (!isNew) return http.put<Skill>(`/skills/${id}`, payload());
+      const s = await http.post<Skill>("/skills", payload());
+      try {
+        await attach(s);
+      } catch (e) {
+        toast.error(`Skill created, but it could not be attached: ${errMsg(e)}`);
+      }
+      return s;
+    },
+    {
+      success: attachAgent || attachConversation ? "Skill created and attached" : "Skill saved",
+      invalidate: [["skills"]],
+      onSuccess: (s) => {
+        if (!isNew) return;
+        if (hasReturn || attachAgent || attachConversation) nav(returnTo, { replace: true });
+        else nav(`/skills/${s.id}`, { replace: true });
+      },
+    },
+  );
   const dup = useAction(() => http.post<Skill>(`/skills/${id}/duplicate`), { success: "Duplicated into your org", invalidate: [["skills"]], onSuccess: (s) => nav(`/skills/${s.id}`) });
   const del = useAction(() => http.del(`/skills/${id}`), { success: "Skill deleted", invalidate: [["skills"]], onSuccess: () => nav("/skills") });
 
@@ -55,7 +112,7 @@ export default function SkillEditor() {
   return (
     <Page>
       <PageHeader
-        back="/skills"
+        back={isNew ? returnTo : "/skills"}
         title={isNew ? "New skill" : form.name || "Skill"}
         description={!isNew && skill.data && <ScopeBadge orgId={skill.data.org_id} />}
         actions={
@@ -68,6 +125,16 @@ export default function SkillEditor() {
         }
       />
       {readOnly && skill.data?.org_id === null && <GlobalNotice onDuplicate={() => dup.mutate()} busy={dup.isPending} />}
+      {(attachAgent || attachConversation) && (
+        <div className="mb-5 flex items-center gap-3 rounded-xl border border-indigo-500/20 bg-gradient-to-r from-primary-soft to-transparent p-4 text-sm">
+          <Link2 className="size-4 shrink-0 text-primary" />
+          <span>
+            After saving, this skill is attached to{" "}
+            {attachAgent ? <span className="font-medium">{agentToAttach.data?.name ?? "the agent"}</span> : <span className="font-medium">this chat</span>}
+            {attachAgent && attachConversation && <> and to <span className="font-medium">this chat</span></>}.
+          </span>
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <Card>
           <CardHeader
@@ -132,7 +199,7 @@ export default function SkillEditor() {
       </div>
       {!readOnly && (
         <SaveBar>
-          <Button variant="outline" onClick={() => nav("/skills")}>Cancel</Button>
+          <Button variant="outline" onClick={() => nav(isNew ? returnTo : "/skills")}>Cancel</Button>
           <Button icon={<Save className="size-4" />} loading={save.isPending} disabled={!form.name.trim()} onClick={() => save.mutate()}>
             Save skill
           </Button>

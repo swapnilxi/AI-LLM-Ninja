@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { cn } from "@/lib/utils";
+import { cn } from "@/shared/lib/utils";
 
 /** Safe markdown renderer (no raw HTML) for agent output. */
 export function Markdown({ children, className }: { children: string; className?: string }) {

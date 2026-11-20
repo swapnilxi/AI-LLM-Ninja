@@ -5,11 +5,11 @@ AgentForge is a full-stack app for building, running and managing AI agents from
 - **Agents, skills, tools and connectors** are reusable library items. They are never tied to a project. Each run happens inside an *(organization, project)*, and the agent receives that org's guidelines and keys, plus the project's brief, documents, memory and policies, when it runs.
 - **Orchestration styles:** you can run single agents or teams. Teams can be sequential pipelines, parallel fan-out, a supervisor that delegates, a router, or a round-robin debate.
 - **Workflows:** a visual DAG builder (React Flow) with agent, team, tool, LLM, condition, template and output nodes.
-- **Automations:** runs can be triggered on a cron schedule, on an interval, by a webhook, or manually.
+- **Scheduler:** runs can be triggered once at a set time, on a recurring schedule, on an interval, by a webhook, or manually. You can set one up by chatting with the scheduling assistant or with a form.
 - **Browser use:** web search (DuckDuckGo with no key, or Tavily/Brave) and a browser tool that reads web pages. JavaScript rendering through Playwright is optional. Both can be switched on or off per agent and per project, with domain allow and block lists.
 - **Discover (one-click installs):** a catalog of top skills (Anthropic and Vercel frontend design, diagram design, Karpathy guidelines, Cloudflare Zero Trust, cybersecurity playbooks, Browser Use, agentmemory, OpenViking), 10 popular MCP servers, a live search of the public skills.sh registry, and `find-skills`. Installs can be **attached to a project**, so every agent running there can use them.
 - **Tasks:** to-dos per project. Turn any chat reply or pasted text into tasks, give them context, and hand a task to an agent. Agents get `create_tasks`, `list_tasks` and `update_task` tools.
-- **Scheduler with AI:** describe a schedule in plain English ("every weekday at 9am summarise my open PRs") and get a reviewed automation draft. Agents can also schedule runs from chat when you enable it.
+- **Scheduler with AI:** describe a schedule in plain English ("every weekday at 9am summarise my open PRs") in one message or a short conversation, review the draft, then create it. Agents can also schedule runs from chat when you enable it.
 - **Skills and `/commands`:** skills can be attached to an agent or to a single chat, or invoked for one message with a slash command. Twelve ready-made templates are included.
 - **Knowledge:** you can attach documents (PDF, DOCX, MD, TXT, CSV, HTML or a URL) to an agent, a project or a whole org. Documents are searched with BM25. You can also *pin* a document so it is added to every prompt.
 - **Memory:** each agent has private memory, and each project has memory shared by all its agents. The agent writes to it with the `memory` tool, and you can edit it in the UI.
@@ -24,12 +24,22 @@ AgentForge is a full-stack app for building, running and managing AI agents from
 MultiAgent/
 ├── backend/            FastAPI + async SQLAlchemy (SQLite by default, Postgres-ready)
 │   ├── app/
-│   │   ├── api/        REST routers (auth, orgs, projects, library, connectors, hub, tasks, knowledge, runs, chat, automations, dashboard, transfer)
-│   │   ├── engine/     runtime: llm providers, tools, connectors, runner, orchestrator, workflow DAG, scheduler, SSRF-safe net
-│   │   ├── models.py   tenancy + library + execution tables
-│   │   └── main.py     app, middleware, lifespan (DB init, seed, scheduler)
+│   │   ├── main.py     app, middleware, lifespan (DB init, seed, scheduler); routers come from app/modules
+│   │   ├── core/       shared plumbing: config, db, auth deps, security, rate limiting, generic CRUD, seed
+│   │   ├── engine/     agent runtime kernel: LLM providers, tool framework, run context, SSRF-safe net
+│   │   └── modules/    one folder per feature (models.py, schemas.py, router.py, service.py, ...)
+│   │       ├── auth/ orgs/ projects/
+│   │       ├── agents/ skills/ tools/ teams/ workflows/ connectors/ discover/
+│   │       ├── knowledge/ training/        documents, memory, lessons
+│   │       ├── chat/ runs/ scheduler/ tasks/
+│   │       └── dashboard/ transfer/
 │   └── tests/          end-to-end tests using the mock model
 ├── frontend/           React 19 + Vite + Tailwind v4 + React Query + React Flow
+│   └── src/
+│       ├── App.tsx      composes every module's routes
+│       ├── shared/      ui primitives, layout (shell, palette), api client, auth, hooks
+│       └── modules/     one folder per feature, mirroring the backend: index.tsx (routes, nav,
+│                        commands), api.ts (data hooks), types.ts, pages. Listed in modules/registry.ts
 ├── .agents/            project-level skills, MCP configs and reference lists for the agents that work on this repo (see .agents/README.md)
 ├── Dockerfile          single image: API + built SPA
 ├── docker-compose.yml  app + Postgres + Redis
@@ -98,7 +108,7 @@ In chat, type `/` to open the command menu. Arrow keys move through it, and Ente
 | `/skills` | Chooses skills for this chat. |
 | `/help` | Lists every command. |
 
-Commands are handled on the server, so they work everywhere: chat, `POST /api/runs` (`{"input": {"task": "/brief solar panels"}}`), automations and webhooks. They work for teams too, where every member gets the skill. The run trace shows which skill a command applied.
+Commands are handled on the server, so they work everywhere: chat, `POST /api/runs` (`{"input": {"task": "/brief solar panels"}}`), schedules and webhooks. They work for teams too, where every member gets the skill. The run trace shows which skill a command applied.
 
 **Templates:** the Skills page → **Templates** has 12 ready-made skills, each with its own command. They include `/summarize`, `/brief`, `/email`, `/translate`, `/codereview`, `/sql`, `/notes`, `/swot`, `/extract`, `/post`, `/eli5` and `/okrs`. You can also **import a SKILL.md** file, or **Install** one by pasting a command such as `npx skills add anthropics/skills --skill pdf`. The server downloads the SKILL.md from GitHub and never runs npx. The 6 starter skills come with `/research`, `/write`, `/calc`, `/docs`, `/review` and `/remember`.
 
@@ -120,6 +130,21 @@ Notes:
 
 `find_skills` and `use_skill` let an agent discover a skill and apply it to the current task. `find_skills` searches your installed skills, the curated catalog and the skills.sh registry. `use_skill` loads the best match for this run only: nothing is installed, and third-party text is labelled as such. Keeping a skill permanently is a deliberate action on the Discover page. They are on by default; switch them off per project under **Tools & connectors → Agent tools**. The built-in **Find Skills** skill (`/find-skills <need>`) teaches the playbook. It is adapted from the `find-skills` skill in `vercel-labs/skills`, which tells agents to run `npx` and so cannot work here.
 
+## Agents and training
+
+Every window is a page with its own URL; nothing important opens in a modal.
+
+- **Agents** (`/agents`): create at `/agents/new` from a starting template. Each agent has its own sections: `/agents/:id` (overview, recent runs), `/profile`, `/instructions` (system-prompt editor with section snippets and a preview of how org/project context is layered), `/model`, `/tools` (capabilities, tools, connectors), `/skills`, `/knowledge` and `/settings` (duplicate, export, delete). All sections share one form with a single Save bar.
+- **Training** (`/training`): pick an agent, then:
+  - `/ingest`: drag-and-drop multi-file upload with progress, paste text, or import a URL.
+  - `/teach`: rules, facts, Q&A examples and corrections.
+  - `/review`: approve auto-learned lessons, or learn from your recent chats.
+  - `/memory`: view and edit the agent's memories.
+  - `/test`: see which chunks a question would retrieve.
+  - `/settings`: auto-learn and distill a playbook skill.
+
+  Project and organisation documents use `/training/ingest?owner_type=…`, and any document opens at `/training/documents/:id`.
+
 ## Tasks and the AI scheduler
 
 **Tasks** (sidebar → Operate):
@@ -128,7 +153,13 @@ Notes:
 - Every task carries **context** (what you typed plus the source text). **Run with agent** hands the task and its context to an agent.
 - Agents in a project get `create_tasks`, `list_tasks` and `update_task`, on by default and switchable per project.
 
-**Scheduler with AI** (Automations → New automation → *Describe it in plain English*): you get the schedule, the next three run times and a task description, all editable. The model only extracts the task and the phrase. The schedule itself is built and checked by a deterministic parser, so a made-up cron expression can never reach the scheduler. Phrases like "every weekday at 9am", "every monday and friday at 5:30pm", "every 2 hours" and "monthly on the 15th" work offline too. Only recurring schedules are supported. With **Scheduling** switched on for a project (off by default), an agent can create a recurring automation when you ask for one in chat. Runs started by a schedule or webhook cannot create new schedules, and agents can create at most 25 per project.
+**Scheduler** (sidebar → Operate → Scheduler, `/scheduler`):
+- **Schedule by chat** (`/scheduler/new/chat`): describe what should run and when, e.g. "every weekday at 9am ask Digest Writer to summarise my PRs" or "tomorrow at 3pm remind me to send the invoice". The assistant asks for anything missing (the task or the time), lets you change the agent or the time ("make it 10:30am instead"), shows a live draft, and creates the schedule when you say "yes". "Edit in form" hands the draft to the form.
+- **Form** (`/scheduler/new/form`): pick a target and a trigger: **Once** (date and time in a timezone), **Recurring** (cron with presets), **Interval**, **Webhook** or **Manual**. A plain-English box can fill the form for you.
+- **Upcoming** (`/scheduler/upcoming`): an agenda of every run the enabled schedules will start in the next 24 hours, 7 days or 30 days.
+- Each schedule has its own page (`/scheduler/:id`) with an overview (next runs, webhook URL), `/edit` and `/runs` (its run history).
+- The model only extracts the task, the time phrase and the agent. The schedule itself is built and checked by a deterministic parser, so a made-up cron expression or date can never reach the scheduler. The parser handles recurring phrases ("every monday and friday at 5:30pm", "every 2 hours", "monthly on the 15th") and one-time ones ("in 2 hours", "next friday", "on 2026-12-05 at 10:00") offline too. "On friday" means one day; "every friday" or "on fridays" repeats. Dates in the past are refused with an explanation.
+- With **Scheduling** switched on for a project (off by default), an agent can create a schedule (recurring or one-time) when you ask for one in chat. Runs started by a schedule or webhook cannot create new schedules, and agents can create at most 25 per project.
 
 ## More features
 
@@ -166,7 +197,7 @@ curl -X POST http://localhost:8000/api/runs \
 # stream a run (Server-Sent Events: replay + live tokens)
 curl -N http://localhost:8000/api/runs/run_.../stream -H "Authorization: Bearer afk_..."
 
-# trigger an automation from anywhere
+# trigger a webhook schedule from anywhere
 curl -X POST http://localhost:8000/api/hooks/whk_... -H "Content-Type: application/json" -d '{"ticket":"URGENT: checkout down"}'
 ```
 

@@ -9,9 +9,9 @@ from email.message import EmailMessage
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
-from ..net import BlockedURL, validate_url
-from ..tools.base import ToolResult, schema
-from .base import READ_ONLY_FIELD, Action, ConfigField, Connector, api_call, fmt
+from app.engine.net import BlockedURL, validate_url
+from app.engine.tools.base import ToolResult, schema
+from app.modules.connectors.base import READ_ONLY_FIELD, Action, ConfigField, Connector, api_call, fmt
 
 
 def _policy(ctx):

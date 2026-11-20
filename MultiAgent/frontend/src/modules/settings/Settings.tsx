@@ -1,7 +1,7 @@
-import { useNavigate, useParams } from "react-router-dom";
-import { useAuth } from "@/lib/auth";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Tabs } from "@/components/ui/primitives";
+import { Navigate, useParams } from "react-router-dom";
+import { useAuth } from "@/shared/lib/auth";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { RouteTabs } from "@/shared/ui/RouteTabs";
 import { GeneralTab } from "./GeneralTab";
 import { ModelsTab } from "./ModelsTab";
 import { MembersTab } from "./MembersTab";
@@ -12,10 +12,11 @@ import { AccountTab } from "./AccountTab";
 import { TransferTab } from "./TransferTab";
 
 type Tab = "general" | "models" | "members" | "secrets" | "api-keys" | "audit" | "transfer" | "account";
+const ALL: Tab[] = ["general", "models", "members", "secrets", "api-keys", "audit", "transfer", "account"];
 
+/** Settings: every tab is its own URL (/settings/<tab>); create/edit forms live on sub-pages such as /settings/api-keys/new. */
 export default function Settings() {
   const { tab: param } = useParams();
-  const nav = useNavigate();
   const { can, org } = useAuth();
   const admin = can("admin");
   const tabs: { key: Tab; label: string }[] = [
@@ -32,12 +33,14 @@ export default function Settings() {
     ...(can("member") ? ([{ key: "transfer", label: "Import / Export" }] as { key: Tab; label: string }[]) : []),
     { key: "account", label: "Account" },
   ];
-  const tab: Tab = tabs.some((t) => t.key === param) ? (param as Tab) : "general";
+  // unknown tab -> General (role-gated tabs render nothing until the role is known, so reloads keep their URL)
+  if (!param || !ALL.includes(param as Tab)) return <Navigate to="/settings/general" replace />;
+  const tab = param as Tab;
 
   return (
     <Page>
       <PageHeader title="Settings" description={org ? `Organization “${org.name}” · you are ${org.role}` : undefined} />
-      <Tabs className="mb-5" tabs={tabs} value={tab} onChange={(t) => nav(`/settings/${t}`)} />
+      <RouteTabs className="mb-5" tabs={tabs.map((t) => ({ to: `/settings/${t.key}`, label: t.label }))} />
       {tab === "general" && <GeneralTab />}
       {tab === "models" && <ModelsTab />}
       {tab === "members" && <MembersTab />}

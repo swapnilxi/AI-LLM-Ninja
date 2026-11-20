@@ -1,5 +1,5 @@
 import { authHeaders, apiBase } from "./api";
-import type { RunEvent } from "./types";
+import type { RunEvent } from "@/modules/runs/types";
 
 /**
  * Streams run events over SSE using fetch (so we can send the Authorization header).

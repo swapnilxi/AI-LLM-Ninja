@@ -1,15 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Plug, Plus, Wrench } from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import type { Tool } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-import { useTools } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, EmptyState, PageLoader } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { IconTile } from "@/components/ui/icons";
-import { Grid, ResourceCard, ScopeBadge } from "@/components/library";
+import { useAuth } from "@/shared/lib/auth";
+import type { Tool } from "@/modules/tools/types";
+import { timeAgo } from "@/shared/lib/utils";
+import { useTools } from "@/modules/tools/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, EmptyState, PageLoader } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { IconTile } from "@/shared/ui/icons";
+import { Grid, ResourceCard, ScopeBadge } from "@/shared/components/library";
 import { toolIcon } from "./parts";
 
 function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

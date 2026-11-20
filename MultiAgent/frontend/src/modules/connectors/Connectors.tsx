@@ -1,22 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, FlaskConical, Lock, Pencil, Plug, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Connection, Connector } from "@/lib/types";
-import { cn, errMsg, timeAgo } from "@/lib/utils";
-import { useAction, useConnections, useConnectorCatalog, useHub } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, Card, Checkbox, EmptyState, Field, Input, PageLoader, Spinner, Switch, Tabs, Textarea } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { ConfirmDialog, Dialog } from "@/components/ui/overlay";
-import { ConnectorIcon } from "@/components/ui/icons";
-import { Grid } from "@/components/library";
-import { McpServerGrid } from "@/components/hub/McpServers";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Connection, Connector } from "@/modules/connectors/types";
+import { cn, errMsg, timeAgo } from "@/shared/lib/utils";
+import { useAction } from "@/shared/hooks/useAction";
+import { useConnections, useConnectorCatalog } from "@/modules/connectors/api";
+import { useHub } from "@/modules/discover/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, Card, Checkbox, EmptyState, Field, Input, PageLoader, Spinner, Switch, Tabs, Textarea } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { ConfirmDialog } from "@/shared/ui/overlay";
+import { useReturnTo } from "@/shared/hooks/useReturnTo";
+import { ConnectorIcon } from "@/shared/ui/icons";
+import { Grid } from "@/shared/components/library";
+import { McpServerGrid } from "@/modules/discover/McpServers";
 
-type ToolRow = { action: string; tool_name: string; description: string; write: boolean; exposed: boolean };
+type ToolRow = {
+  action: string;
+  tool_name: string;
+  description: string;
+  write: boolean;
+  exposed: boolean;
+};
 
 function StatusBadge({ status }: { status: string }) {
   if (status === "ok") return <Badge tone="success">Connected</Badge>;
@@ -29,14 +38,13 @@ export default function Connectors() {
   const hub = useHub(projectId);
   const catalog = useConnectorCatalog();
   const connections = useConnections();
-  const [tab, setTab] = useState<"connected" | "catalog">("connected");
+  const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
   const [q, setQ] = useState("");
-  const [dialog, setDialog] = useState<{ connector: Connector; connection?: Connection } | null>(null);
-  const [touched, setTouched] = useState(false);
-
-  useEffect(() => {
-    if (!touched && connections.data && connections.data.length === 0) setTab("catalog");
-  }, [connections.data, touched]);
+  // ?tab=connected|catalog; without it, show the catalog when nothing is connected yet
+  const param = params.get("tab");
+  const tab: "connected" | "catalog" = param === "catalog" || param === "connected" ? param : connections.data && connections.data.length === 0 ? "catalog" : "connected";
+  const setTab = (t: "connected" | "catalog") => setParams({ tab: t }, { replace: true });
 
   const byKey = useMemo(() => Object.fromEntries((catalog.data ?? []).map((c) => [c.key, c])), [catalog.data]);
   const filteredCatalog = (catalog.data ?? []).filter((c) => !q || `${c.name} ${c.description} ${c.category}`.toLowerCase().includes(q.toLowerCase()));
@@ -47,7 +55,13 @@ export default function Connectors() {
       <PageHeader
         title="Connectors"
         description="Connect apps and MCP servers once per organization. Their actions become tools for agents."
-        actions={can("admin") && <Button icon={<Plus className="size-4" />} onClick={() => { setTouched(true); setTab("catalog"); }}>Connect an app</Button>}
+        actions={
+          can("admin") && (
+            <Button icon={<Plus className="size-4" />} onClick={() => setTab("catalog")}>
+              Connect an app
+            </Button>
+          )
+        }
       />
 
       <Card className="mb-5 grid gap-4 bg-gradient-to-br from-primary-soft/60 via-transparent to-transparent p-4 sm:grid-cols-3 sm:p-5">
@@ -56,7 +70,10 @@ export default function Connectors() {
           <div className="text-sm">
             <div className="font-medium">Attach to an agent</div>
             <div className="text-muted">
-              <Link to="/agents" className="text-primary hover:underline">Agent editor</Link> → Capabilities & tools → App connectors.
+              <Link to="/agents" className="text-primary hover:underline">
+                Agent editor
+              </Link>{" "}
+              → Capabilities & tools → App connectors.
             </div>
           </div>
         </div>
@@ -65,7 +82,10 @@ export default function Connectors() {
           <div className="text-sm">
             <div className="font-medium">Share with a project</div>
             <div className="text-muted">
-              <Link to="/projects" className="text-primary hover:underline">Project settings</Link> → connectors are given to every agent running there.
+              <Link to="/projects" className="text-primary hover:underline">
+                Project settings
+              </Link>{" "}
+              → connectors are given to every agent running there.
             </div>
           </div>
         </div>
@@ -81,14 +101,15 @@ export default function Connectors() {
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           tabs={[
-            { key: "connected", label: "Connected", count: connections.data?.length },
+            {
+              key: "connected",
+              label: "Connected",
+              count: connections.data?.length,
+            },
             { key: "catalog", label: "Catalog", count: catalog.data?.length },
           ]}
           value={tab}
-          onChange={(v) => {
-            setTouched(true);
-            setTab(v);
-          }}
+          onChange={setTab}
         />
         {tab === "catalog" && <SearchInput value={q} onChange={setQ} placeholder="Search apps…" className="sm:w-64" />}
       </div>
@@ -106,7 +127,7 @@ export default function Connectors() {
         ) : (
           <div className="space-y-3">
             {connections.data.map((c) => (
-              <ConnectionRow key={c.id} connection={c} connector={byKey[c.connector_key]} onEdit={() => byKey[c.connector_key] && setDialog({ connector: byKey[c.connector_key], connection: c })} />
+              <ConnectionRow key={c.id} connection={c} connector={byKey[c.connector_key]} onEdit={() => nav(`/connectors/${c.id}`)} />
             ))}
           </div>
         )
@@ -118,7 +139,9 @@ export default function Connectors() {
             <section>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Popular tools (MCP)</h2>
-                <Link to="/discover?tab=connectors" className="text-xs font-medium text-primary hover:underline">See all</Link>
+                <Link to="/discover?tab=connectors" className="text-xs font-medium text-primary hover:underline">
+                  See all
+                </Link>
               </div>
               <McpServerGrid servers={hub.data.mcp.filter((m) => m.popular)} projectId={projectId} projectName={project?.name} />
             </section>
@@ -130,25 +153,19 @@ export default function Connectors() {
                 {filteredCatalog
                   .filter((c) => c.category === cat)
                   .map((c) => (
-                    <CatalogCard key={c.key} connector={c} count={(connections.data ?? []).filter((x) => x.connector_key === c.key).length} onConnect={() => setDialog({ connector: c })} canConnect={can("admin")} />
+                    <CatalogCard
+                      key={c.key}
+                      connector={c}
+                      count={(connections.data ?? []).filter((x) => x.connector_key === c.key).length}
+                      onConnect={() => nav(`/connectors/new/${c.key}`)}
+                      canConnect={can("admin")}
+                    />
                   ))}
               </Grid>
             </section>
           ))}
           {!filteredCatalog.length && <p className="text-sm text-muted">No apps match “{q}”.</p>}
         </div>
-      )}
-
-      {dialog && (
-        <ConnectDialog
-          connector={dialog.connector}
-          connection={dialog.connection}
-          onClose={() => setDialog(null)}
-          onCreated={() => {
-            setTouched(true);
-            setTab("connected");
-          }}
-        />
       )}
     </Page>
   );
@@ -209,9 +226,17 @@ function ConnectionRow({ connection: c, connector, onEdit }: { connection: Conne
   const [testing, setTesting] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const inv = [["connections"]];
-  const tools = useQuery({ queryKey: ["connection-tools", c.id], queryFn: () => http.get<ToolRow[]>(`/connections/${c.id}/tools`), enabled: open });
+  const tools = useQuery({
+    queryKey: ["connection-tools", c.id],
+    queryFn: () => http.get<ToolRow[]>(`/connections/${c.id}/tools`),
+    enabled: open,
+  });
   const toggle = useAction((v: boolean) => http.patch(`/connections/${c.id}`, { enabled: v }), { invalidate: inv });
-  const del = useAction(() => http.del(`/connections/${c.id}`), { success: "Connection removed", invalidate: inv, onSuccess: () => setConfirm(false) });
+  const del = useAction(() => http.del(`/connections/${c.id}`), {
+    success: "Connection removed",
+    invalidate: inv,
+    onSuccess: () => setConfirm(false),
+  });
 
   const test = async () => {
     setTesting(true);
@@ -267,7 +292,9 @@ function ConnectionRow({ connection: c, connector, onEdit }: { connection: Conne
       {open && (
         <div className="border-t border-border px-4 py-3">
           {tools.isLoading ? (
-            <div className="flex justify-center py-4"><Spinner /></div>
+            <div className="flex justify-center py-4">
+              <Spinner />
+            </div>
           ) : tools.isError ? (
             <p className="text-sm text-danger">{errMsg(tools.error)}</p>
           ) : !tools.data?.length ? (
@@ -288,12 +315,47 @@ function ConnectionRow({ connection: c, connector, onEdit }: { connection: Conne
           )}
         </div>
       )}
-      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => del.mutate()} loading={del.isPending} title={`Remove “${c.name}”?`} description="Agents and projects using this connection lose its tools. Stored credentials are deleted." />
+      <ConfirmDialog
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        onConfirm={() => del.mutate()}
+        loading={del.isPending}
+        title={`Remove “${c.name}”?`}
+        description="Agents and projects using this connection lose its tools. Stored credentials are deleted."
+      />
     </Card>
   );
 }
 
-function ConnectDialog({ connector, connection, onClose, onCreated }: { connector: Connector; connection?: Connection; onClose: () => void; onCreated: () => void }) {
+/**
+ * /connectors/new/:connectorKey (connect an app) and /connectors/:id (edit a connection).
+ * Both accept ?return_to=<path>.
+ */
+export function ConnectionPage() {
+  const { connectorKey, id } = useParams();
+  const catalog = useConnectorCatalog();
+  const connections = useConnections();
+  const back = useReturnTo(id ? "/connectors" : "/connectors?tab=catalog");
+  if (catalog.isLoading || (id && connections.isLoading)) return <PageLoader />;
+  const connection = id ? connections.data?.find((c) => c.id === id) : undefined;
+  const connector = catalog.data?.find((c) => c.key === (connection?.connector_key ?? connectorKey));
+  if (!connector || (id && !connection))
+    return (
+      <Page className="max-w-3xl">
+        <PageHeader back={back} title={id ? "Connection not found" : "App not found"} />
+        <EmptyState
+          icon={<Plug className="size-5" />}
+          title={id ? "This connection does not exist" : "Unknown app"}
+          description={id ? "It may have been removed, or it belongs to another organization." : `There is no connector called “${connectorKey}”.`}
+        />
+      </Page>
+    );
+  return <ConnectForm key={connection?.id ?? connector.key} connector={connector} connection={connection} back={back} />;
+}
+
+function ConnectForm({ connector, connection, back }: { connector: Connector; connection?: Connection; back: string }) {
+  const nav = useNavigate();
+  const onClose = () => nav(back);
   const editing = !!connection;
   const initial = () => {
     const v: Record<string, any> = {};
@@ -322,8 +384,18 @@ function ConnectDialog({ connector, connection, onClose, onCreated }: { connecto
 
   const save = useAction(
     async () => {
-      if (editing) return http.patch<Connection>(`/connections/${connection!.id}`, { name, config: payloadConfig(), enabled_tools: enabledTools });
-      const created = await http.post<Connection>("/connections", { connector_key: connector.key, name, config: payloadConfig(), enabled_tools: enabledTools });
+      if (editing)
+        return http.patch<Connection>(`/connections/${connection!.id}`, {
+          name,
+          config: payloadConfig(),
+          enabled_tools: enabledTools,
+        });
+      const created = await http.post<Connection>("/connections", {
+        connector_key: connector.key,
+        name,
+        config: payloadConfig(),
+        enabled_tools: enabledTools,
+      });
       try {
         const r = await http.post<{ ok: boolean; message: string }>(`/connections/${created.id}/test`);
         r.ok ? toast.success(r.message) : toast.warning(`Saved, but the test failed: ${r.message}`);
@@ -335,94 +407,110 @@ function ConnectDialog({ connector, connection, onClose, onCreated }: { connecto
     {
       success: editing ? "Connection updated" : `${connector.name} connected`,
       invalidate: inv,
-      onSuccess: () => {
-        if (!editing) onCreated();
-        onClose();
-      },
+      onSuccess: () => nav(editing ? back : "/connectors?tab=connected"),
     },
   );
 
   const missing = connector.fields.filter((f) => f.required && !(f.secret && editing) && !String(values[f.key] ?? "").trim());
 
   return (
-    <Dialog
-      open
-      onClose={onClose}
-      size="lg"
-      title={
-        <span className="flex items-center gap-3">
-          <ConnectorIcon connectorKey={connector.key} size="sm" />
-          {editing ? `Edit ${connection!.name}` : `Connect ${connector.name}`}
-        </span>
-      }
-      description={connector.description}
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button loading={save.isPending} disabled={!name.trim() || missing.length > 0} onClick={() => save.mutate()}>
-            {editing ? "Save changes" : "Connect"}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Connection name" hint="Shown in agent and project settings, e.g. “GitHub - platform team”.">
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        {connector.fields.map((f) => {
-          const masked = connection?.config?.[f.key];
-          const label = (
-            <span className="inline-flex items-center gap-1.5">
-              {f.label}
-              {f.required && <span className="text-danger">*</span>}
-              {f.secret && <Lock className="size-3 text-muted" />}
-            </span>
-          );
-          if (f.type === "boolean")
-            return (
-              <div key={f.key} className="rounded-lg border border-border px-3 py-2">
-                <Switch checked={!!values[f.key]} onChange={(v) => setValues({ ...values, [f.key]: v })} label={f.label} description={f.help} />
-              </div>
-            );
-          return (
-            <Field key={f.key} label={label} hint={f.secret && editing ? `Leave blank to keep the current value${masked ? ` (${masked})` : ""}.` : f.help}>
-              {f.type === "textarea" ? (
-                <Textarea mono rows={3} value={values[f.key] ?? ""} onChange={(e) => setValues({ ...values, [f.key]: e.target.value })} placeholder={f.secret && editing && masked ? String(masked) : f.placeholder} />
-              ) : (
-                <Input
-                  type={f.secret || f.type === "password" ? "password" : f.type === "number" ? "number" : f.type === "url" ? "url" : "text"}
-                  autoComplete="off"
-                  value={values[f.key] ?? ""}
-                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-                  placeholder={f.secret && editing && masked ? String(masked) : f.placeholder}
-                  className={cn(f.type === "url" && "font-mono text-xs")}
-                />
-              )}
+    <Page className="max-w-3xl">
+      <PageHeader
+        back={back}
+        icon={<ConnectorIcon connectorKey={connector.key} />}
+        title={editing ? `Edit ${connection!.name}` : `Connect ${connector.name}`}
+        description={connector.description}
+        actions={
+          connector.docs_url && (
+            <a href={connector.docs_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
+              Get credentials <ExternalLink className="size-3" />
+            </a>
+          )
+        }
+      />
+      <Card>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim() && !missing.length) save.mutate();
+          }}
+        >
+          <div className="space-y-4 p-4 sm:p-5">
+            <Field label="Connection name" hint="Shown in agent and project settings, e.g. “GitHub - platform team”.">
+              <Input value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
-          );
-        })}
-        {!connector.dynamic && connector.actions.length > 1 && (
-          <div>
-            <div className="mb-1.5 text-xs font-medium text-muted">Allowed actions <span className="font-normal">(none selected = all)</span></div>
-            <div className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-2">
-              {connector.actions.map((a) => (
-                <Checkbox
-                  key={a.name}
-                  checked={enabledTools.includes(a.name)}
-                  onChange={(v) => setEnabledTools(v ? [...enabledTools, a.name] : enabledTools.filter((x) => x !== a.name))}
-                  label={
-                    <span className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs">{a.name}</span>
-                      {a.write && <Badge tone="warning">write</Badge>}
-                    </span>
-                  }
-                />
-              ))}
-            </div>
+            {connector.fields.map((f) => {
+              const masked = connection?.config?.[f.key];
+              const label = (
+                <span className="inline-flex items-center gap-1.5">
+                  {f.label}
+                  {f.required && <span className="text-danger">*</span>}
+                  {f.secret && <Lock className="size-3 text-muted" />}
+                </span>
+              );
+              if (f.type === "boolean")
+                return (
+                  <div key={f.key} className="rounded-lg border border-border px-3 py-2">
+                    <Switch checked={!!values[f.key]} onChange={(v) => setValues({ ...values, [f.key]: v })} label={f.label} description={f.help} />
+                  </div>
+                );
+              return (
+                <Field key={f.key} label={label} hint={f.secret && editing ? `Leave blank to keep the current value${masked ? ` (${masked})` : ""}.` : f.help}>
+                  {f.type === "textarea" ? (
+                    <Textarea
+                      mono
+                      rows={3}
+                      value={values[f.key] ?? ""}
+                      onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                      placeholder={f.secret && editing && masked ? String(masked) : f.placeholder}
+                    />
+                  ) : (
+                    <Input
+                      type={f.secret || f.type === "password" ? "password" : f.type === "number" ? "number" : f.type === "url" ? "url" : "text"}
+                      autoComplete="off"
+                      value={values[f.key] ?? ""}
+                      onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
+                      placeholder={f.secret && editing && masked ? String(masked) : f.placeholder}
+                      className={cn(f.type === "url" && "font-mono text-xs")}
+                    />
+                  )}
+                </Field>
+              );
+            })}
+            {!connector.dynamic && connector.actions.length > 1 && (
+              <div>
+                <div className="mb-1.5 text-xs font-medium text-muted">
+                  Allowed actions <span className="font-normal">(none selected = all)</span>
+                </div>
+                <div className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-2">
+                  {connector.actions.map((a) => (
+                    <Checkbox
+                      key={a.name}
+                      checked={enabledTools.includes(a.name)}
+                      onChange={(v) => setEnabledTools(v ? [...enabledTools, a.name] : enabledTools.filter((x) => x !== a.name))}
+                      label={
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-mono text-xs">{a.name}</span>
+                          {a.write && <Badge tone="warning">write</Badge>}
+                        </span>
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {connector.dynamic && <p className="text-xs text-muted">Tools are discovered from the server after connecting (cached for 5 minutes). Use “Test” to refresh.</p>}
           </div>
-        )}
-        {connector.dynamic && <p className="text-xs text-muted">Tools are discovered from the server after connecting (cached for 5 minutes). Use “Test” to refresh.</p>}
-      </div>
-    </Dialog>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-5">
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={save.isPending} disabled={!name.trim() || missing.length > 0}>
+              {editing ? "Save changes" : "Connect"}
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </Page>
   );
 }

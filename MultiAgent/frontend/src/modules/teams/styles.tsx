@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { ListOrdered, Network, Repeat, Route, Split } from "lucide-react";
-import type { TeamStyle } from "@/lib/types";
+import type { TeamStyle } from "@/modules/teams/types";
 
 export const TEAM_STYLES: { key: TeamStyle; label: string; icon: LucideIcon; color: string; summary: string; detail: string }[] = [
   {

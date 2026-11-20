@@ -1,6 +1,6 @@
 import { Bot, Users, Workflow as WorkflowIcon } from "lucide-react";
-import type { TargetType } from "@/lib/types";
-import { IconTile } from "@/components/ui/icons";
+import type { TargetType } from "@/shared/lib/types";
+import { IconTile } from "@/shared/ui/icons";
 
 export const TARGET_META: Record<TargetType, { label: string; icon: typeof Bot; color: string; path: string }> = {
   agent: { label: "Agent", icon: Bot, color: "indigo", path: "/agents" },

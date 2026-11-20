@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -14,13 +13,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .api import auth, automations, chat, connectors, dashboard, hub, knowledge, library, orgs, projects, runs, tasks, training, transfer
-from .config import BASE_DIR, settings
-from .db import init_db
-from .engine import runs as run_engine
-from .engine.scheduler import scheduler_loop
-from .middleware import SecurityMiddleware
-from .seed import seed
+from app.core.config import BASE_DIR, settings
+from app.core.db import init_db
+from app.core.middleware import SecurityMiddleware
+from app.core.seed import seed
+from app.modules import routers
+from app.modules.runs import service as run_engine
+from app.modules.scheduler.service import scheduler_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("agentforge")
@@ -88,7 +87,7 @@ async def health():
     return {"status": "ok", "app": settings.app_name}
 
 
-for r in [auth.router, orgs.router, projects.router, *library.ROUTERS, connectors.router, knowledge.router, runs.router, runs.hooks_router, chat.router, automations.router, dashboard.router, training.router, transfer.router, tasks.router, hub.router]:
+for r in routers():  # every feature module contributes its own router(s); see app/modules/__init__.py
     app.include_router(r, prefix="/api")
 
 

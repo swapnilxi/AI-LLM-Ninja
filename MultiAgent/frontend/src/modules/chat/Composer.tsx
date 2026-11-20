@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, CircleHelp, MessageSquarePlus, Slash, Sparkles, Square, X } from "lucide-react";
-import type { SkillCommand } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { Badge, Button } from "@/components/ui/primitives";
+import type { SkillCommand } from "@/modules/skills/types";
+import { cn } from "@/shared/lib/utils";
+import { Badge, Button } from "@/shared/ui/primitives";
 
 export type BuiltinCommand = "new" | "skills" | "help";
 

@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, Copy, Ellipsis, ExternalLink, ListChecks, ListTree, LoaderCircle, Pencil, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users } from "lucide-react";
+import { Check, ChevronLeft, Copy, Ellipsis, ExternalLink, ListChecks, ListTree, LoaderCircle, Pencil, Sparkles, ThumbsDown, ThumbsUp, Trash2, Users, X } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Agent, ChatMessage, Conversation, Run, RunEvent, Team } from "@/lib/types";
-import { cn, errMsg, formatNumber, timeAgo } from "@/lib/utils";
-import { useAgents, useSkillCommands, useTeams } from "@/hooks/useData";
-import { useRunStream } from "@/hooks/useRunStream";
-import { ConfirmDialog, Dialog, Menu, MenuItem } from "@/components/ui/overlay";
-import { Badge, Button, Input, PageLoader } from "@/components/ui/primitives";
-import { Markdown } from "@/components/ui/Markdown";
-import { AgentAvatar, IconTile } from "@/components/ui/icons";
-import { RunTimeline } from "@/components/run/RunTimeline";
-import { ExtractTasksDialog } from "@/components/tasks/ExtractTasksDialog";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Agent } from "@/modules/agents/types";
+import type { ChatMessage, Conversation } from "@/modules/chat/types";
+import type { Run, RunEvent } from "@/modules/runs/types";
+import type { Team } from "@/modules/teams/types";
+import { cn, errMsg, formatNumber, timeAgo } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useSkillCommands } from "@/modules/skills/api";
+import { useTeams } from "@/modules/teams/api";
+import { useRunStream } from "@/modules/runs/useRunStream";
+import { ConfirmDialog, Menu, MenuItem } from "@/shared/ui/overlay";
+import { Badge, Button, Input, PageLoader } from "@/shared/ui/primitives";
+import { Markdown } from "@/shared/ui/Markdown";
+import { AgentAvatar, IconTile } from "@/shared/ui/icons";
+import { RunTimeline } from "@/modules/runs/RunTimeline";
+import { withReturn } from "@/shared/hooks/useReturnTo";
 import { Composer, type BuiltinCommand } from "./Composer";
-import { CommandsHelpDialog, ConversationSkillsDialog } from "./ChatDialogs";
 
 const SUGGESTIONS = [
   "Search the web for the latest news on AI agents and summarize the top 3 stories with sources",
@@ -40,6 +44,7 @@ function statusLine(events: RunEvent[]): string {
 
 export function Thread({ conversationId }: { conversationId: string }) {
   const nav = useNavigate();
+  const loc = useLocation();
   const qc = useQueryClient();
   const { projectId, can } = useAuth();
   const agents = useAgents();
@@ -55,10 +60,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
   const [title, setTitle] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [suggestion, setSuggestion] = useState<string>("");
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [tasksFor, setTasksFor] = useState<ChatMessage | null>(null);
   const commands = useSkillCommands();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +75,13 @@ export function Thread({ conversationId }: { conversationId: string }) {
     setPendingRun(null);
     setSendingText(null);
   }, [conversationId]);
+
+  // a command picked on /chat/:id/commands arrives as router state and is dropped into the composer
+  useEffect(() => {
+    const draft = (loc.state as { draft?: string } | null)?.draft;
+    if (draft) setSuggestion((prev) => (prev === draft ? `${draft} ` : draft));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.key]);
 
   useEffect(() => {
     if (stream.done && activeRunId) {
@@ -92,7 +101,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
   const c = conv.data?.conversation;
   const target = useMemo(() => {
     if (!c) return null;
-    return c.target_type === "agent" ? (agents.data ?? []).find((a) => a.id === c.target_id) ?? null : (teams.data ?? []).find((t) => t.id === c.target_id) ?? null;
+    return c.target_type === "agent" ? ((agents.data ?? []).find((a) => a.id === c.target_id) ?? null) : ((teams.data ?? []).find((t) => t.id === c.target_id) ?? null);
   }, [c, agents.data, teams.data]);
 
   const send = async (text: string) => {
@@ -101,7 +110,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
     try {
       const res = await http.post<{ message: ChatMessage; run: Run }>(`/conversations/${conversationId}/messages`, { content: text });
       setPendingRun(res.run.id);
-      await qc.invalidateQueries({ queryKey: ["conversation", conversationId] });
+      await qc.invalidateQueries({
+        queryKey: ["conversation", conversationId],
+      });
       qc.invalidateQueries({ queryKey: ["conversations"] });
     } catch (e) {
       toast.error(errMsg(e));
@@ -134,7 +145,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
   const feedback = async (m: ChatMessage, rating: "up" | "down") => {
     const current = m.meta?.feedback?.rating;
     try {
-      await http.patch(`/conversations/${conversationId}/messages/${m.id}`, { feedback: current === rating ? null : rating });
+      await http.patch(`/conversations/${conversationId}/messages/${m.id}`, {
+        feedback: current === rating ? null : rating,
+      });
       qc.invalidateQueries({ queryKey: ["conversation", conversationId] });
       if (current !== rating) toast.success(rating === "up" ? "Thanks for the feedback" : "Feedback saved — we'll use it to improve");
     } catch (e) {
@@ -153,8 +166,8 @@ export function Thread({ conversationId }: { conversationId: string }) {
   };
 
   const onBuiltin = (cmd: BuiltinCommand) => {
-    if (cmd === "skills") setSkillsOpen(true);
-    else if (cmd === "help") setHelpOpen(true);
+    if (cmd === "skills") nav(`/chat/${conversationId}/skills`);
+    else if (cmd === "help") nav(`/chat/${conversationId}/commands`);
     else if (c) nav(`/chat?${c.target_type}=${c.target_id}`);
   };
 
@@ -173,7 +186,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-sm text-muted">This conversation could not be found.</p>
-        <Button variant="outline" onClick={() => nav("/chat")}>Back to chats</Button>
+        <Button variant="outline" onClick={() => nav("/chat")}>
+          Back to chats
+        </Button>
       </div>
     );
   }
@@ -189,15 +204,42 @@ export function Thread({ conversationId }: { conversationId: string }) {
         </button>
         {avatar}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{c.title}</div>
+          {renaming ? (
+            <form
+              className="flex items-center gap-1"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (title.trim()) rename();
+              }}
+            >
+              <Input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Escape" && setRenaming(false)}
+                className="h-8 max-w-sm"
+                aria-label="Conversation title"
+              />
+              <Button type="submit" size="icon" variant="ghost" className="size-8" disabled={!title.trim()} aria-label="Save title">
+                <Check className="size-4" />
+              </Button>
+              <Button type="button" size="icon" variant="ghost" className="size-8" onClick={() => setRenaming(false)} aria-label="Cancel rename">
+                <X className="size-4" />
+              </Button>
+            </form>
+          ) : (
+            <div className="truncate text-sm font-semibold">{c.title}</div>
+          )}
           <div className="flex items-center gap-1.5 truncate text-xs text-muted">
             {target?.name ?? "Unknown target"}
-            <Badge tone="muted" className="capitalize">{c.target_type}</Badge>
+            <Badge tone="muted" className="capitalize">
+              {c.target_type}
+            </Badge>
             {(target as Team | null)?.style && <span className="hidden sm:inline">· {(target as Team).style.replace("_", " ")}</span>}
           </div>
         </div>
-        <button
-          onClick={() => setSkillsOpen(true)}
+        <Link
+          to={`/chat/${conversationId}/skills`}
           title="Skills for this chat"
           className={cn(
             "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium",
@@ -207,7 +249,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
           <Sparkles className="size-3.5" />
           <span className="hidden sm:inline">Skills</span>
           {(c.skill_ids?.length ?? 0) > 0 && <span>{c.skill_ids!.length}</span>}
-        </button>
+        </Link>
         <Menu
           trigger={
             <button className="cursor-pointer rounded-lg p-2 text-muted hover:bg-surface-2 hover:text-fg" aria-label="Conversation options">
@@ -254,14 +296,18 @@ export function Thread({ conversationId }: { conversationId: string }) {
       </div>
 
       {otherProject && (
-        <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-muted">This conversation belongs to a different project than the one currently active; it keeps using its own project's context.</div>
+        <div className="border-b border-amber-500/20 bg-amber-500/5 px-4 py-2 text-xs text-muted">
+          This conversation belongs to a different project than the one currently active; it keeps using its own project's context.
+        </div>
       )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl space-y-5 px-3 py-6 sm:px-6">
           {messages.length === 0 && !sendingText && (
             <div className="py-8 text-center">
-              <div className="mx-auto mb-3 flex justify-center">{c.target_type === "agent" ? <AgentAvatar agent={target as Agent | null} size="lg" /> : <IconTile icon={Users} color="violet" size="lg" />}</div>
+              <div className="mx-auto mb-3 flex justify-center">
+                {c.target_type === "agent" ? <AgentAvatar agent={target as Agent | null} size="lg" /> : <IconTile icon={Users} color="violet" size="lg" />}
+              </div>
               <h2 className="text-lg font-semibold">Chat with {target?.name ?? "the assistant"}</h2>
               <p className="mx-auto mt-1 max-w-md text-sm text-muted">{target?.description || "Ask anything. Answers use your project's brief, documents, memory and tools."}</p>
               <div className="mx-auto mt-6 grid max-w-2xl gap-2 text-left sm:grid-cols-2">
@@ -294,7 +340,12 @@ export function Thread({ conversationId }: { conversationId: string }) {
                   </div>
                   <div className="mt-1 flex items-center gap-3 px-1 text-[11px] text-muted">
                     {timeAgo(m.created_at)}
-                    {m.meta?.usage && <span>{formatNumber((m.meta.usage.input_tokens ?? 0) + (m.meta.usage.output_tokens ?? 0))} tokens · {m.meta.usage.tool_calls ?? 0} tool call{(m.meta.usage.tool_calls ?? 0) === 1 ? "" : "s"}</span>}
+                    {m.meta?.usage && (
+                      <span>
+                        {formatNumber((m.meta.usage.input_tokens ?? 0) + (m.meta.usage.output_tokens ?? 0))} tokens · {m.meta.usage.tool_calls ?? 0} tool call
+                        {(m.meta.usage.tool_calls ?? 0) === 1 ? "" : "s"}
+                      </span>
+                    )}
                     {m.run_id && (
                       <Link to={`/runs/${m.run_id}`} className="inline-flex items-center gap-1 hover:text-fg">
                         <ListTree className="size-3" /> Steps
@@ -305,9 +356,14 @@ export function Thread({ conversationId }: { conversationId: string }) {
                         {copied === m.id ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                       </button>
                       {can("member") && (
-                        <button onClick={() => setTasksFor(m)} className="cursor-pointer rounded-md p-1 hover:bg-surface-2 hover:text-fg" aria-label="Turn into tasks" title="Turn into tasks">
+                        <Link
+                          to={withReturn(`/tasks/extract?conversation=${conversationId}&message=${m.id}`, `/chat/${conversationId}`)}
+                          className="rounded-md p-1 hover:bg-surface-2 hover:text-fg"
+                          aria-label="Turn into tasks"
+                          title="Turn into tasks"
+                        >
                           <ListChecks className="size-3.5" />
-                        </button>
+                        </Link>
                       )}
                       <button
                         onClick={() => feedback(m, "up")}
@@ -371,33 +427,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
         </div>
       </div>
 
-      <Composer
-        disabled={!can("member")}
-        busy={running || sending}
-        onSend={send}
-        onStop={running ? stop : undefined}
-        initial={suggestion}
-        commands={commands.data ?? []}
-        onBuiltin={onBuiltin}
-      />
-      <ConversationSkillsDialog open={skillsOpen} onClose={() => setSkillsOpen(false)} conversation={c} />
-      <CommandsHelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} commands={commands.data ?? []} onPick={(cmd) => setSuggestion((prev) => (prev === cmd ? `${cmd} ` : cmd))} />
-
-      {tasksFor && <ExtractTasksDialog open onClose={() => setTasksFor(null)} projectId={c.project_id} initialText={tasksFor.content} conversationId={conversationId} messageId={tasksFor.id} />}
-      <Dialog
-        open={renaming}
-        onClose={() => setRenaming(false)}
-        title="Rename conversation"
-        size="sm"
-        footer={
-          <>
-            <Button variant="outline" onClick={() => setRenaming(false)}>Cancel</Button>
-            <Button onClick={rename} disabled={!title.trim()}>Save</Button>
-          </>
-        }
-      >
-        <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && title.trim() && rename()} />
-      </Dialog>
+      <Composer disabled={!can("member")} busy={running || sending} onSend={send} onStop={running ? stop : undefined} initial={suggestion} commands={commands.data ?? []} onBuiltin={onBuiltin} />
       <ConfirmDialog open={deleting} onClose={() => setDeleting(false)} onConfirm={remove} title="Delete this conversation?" description="All messages in it will be removed. Run history is kept." />
     </div>
   );

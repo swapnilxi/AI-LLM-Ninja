@@ -19,16 +19,22 @@ import {
 } from "@xyflow/react";
 import { ChevronLeft, CircleAlert, Copy, Ellipsis, Globe, ListPlus, Maximize2, Play, Plus, Save, ShieldCheck, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { http } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { InputField, Workflow, WorkflowEdge } from "@/lib/types";
-import { cn, errMsg } from "@/lib/utils";
-import { useAgents, useCatalog, useProviders, useStartRun, useTeams, useTools, useWorkflow } from "@/hooks/useData";
-import { useRunStream } from "@/hooks/useRunStream";
-import { Badge, Button, Field, PageLoader, Textarea } from "@/components/ui/primitives";
-import { ConfirmDialog, Menu, MenuItem, Sheet } from "@/components/ui/overlay";
-import { IconTile } from "@/components/ui/icons";
-import { InputFieldsDialog } from "./InputFieldsDialog";
+import { http } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { InputField, Workflow, WorkflowEdge } from "@/modules/workflows/types";
+import { cn, errMsg } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useCatalog } from "@/shared/hooks/useCatalog";
+import { useProviders } from "@/modules/settings/api";
+import { useStartRun } from "@/modules/runs/api";
+import { useTeams } from "@/modules/teams/api";
+import { useTools } from "@/modules/tools/api";
+import { useWorkflow } from "@/modules/workflows/api";
+import { useRunStream } from "@/modules/runs/useRunStream";
+import { Badge, Button, Field, PageLoader, Textarea } from "@/shared/ui/primitives";
+import { ConfirmDialog, Menu, MenuItem, Sheet } from "@/shared/ui/overlay";
+import { IconTile } from "@/shared/ui/icons";
+import { InputFieldsPanel } from "./InputFieldsPanel";
 import { NodeConfig, TemplateHelp } from "./NodeConfig";
 import { LookupCtx, NODE_META, nodeTypes, PALETTE_ORDER, StatusCtx, type FlowNode, type NodeData, type NodeStatus } from "./nodes";
 import { RunPanel } from "./RunPanel";
@@ -92,7 +98,11 @@ function Palette({ onAdd, disabled }: { onAdd: (type: string) => void; disabled?
 }
 
 function Builder() {
-  const { id } = useParams();
+  const params = useParams();
+  const id = params.id;
+  // nested route (/workflows/:id/inputs) shown as a panel while the builder and its unsaved graph stay mounted
+  const sub = params["*"] === "inputs" ? "inputs" : null;
+  const base = `/workflows/${id}`;
   const isNew = id === "new";
   const nav = useNavigate();
   const { can, user } = useAuth();
@@ -113,7 +123,6 @@ function Builder() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"config" | "run" | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [inputsOpen, setInputsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dirty, setDirty] = useState(isNew);
   const [errors, setErrors] = useState<string[]>([]);
@@ -140,7 +149,12 @@ function Builder() {
     const t = setTimeout(() => rf.fitView({ padding: 0.2, maxZoom: 1.1, duration: 200 }), 80);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel]);
+  }, [panel, sub]);
+
+  const showPanel = (p: "config" | "run" | null) => {
+    setPanel(p);
+    if (sub) nav(base);
+  };
 
   const readOnly = !can("member") || (!!wf.data && wf.data.org_id === null && !user?.is_superadmin);
   const lookups = useMemo(
@@ -191,7 +205,7 @@ function Builder() {
     const nid = nextId(type);
     setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { id: nid, type, position: pos!, data: { ...NODE_META[type].defaults }, selected: true }]);
     setSelectedId(nid);
-    setPanel("config");
+    showPanel("config");
     setPaletteOpen(false);
     setDirty(true);
   };
@@ -220,7 +234,7 @@ function Builder() {
       const w = isNew ? await http.post<Workflow>("/workflows", body) : await http.put<Workflow>(`/workflows/${id}`, body);
       setDirty(false);
       toast.success("Workflow saved");
-      if (isNew) nav(`/workflows/${w.id}`, { replace: true });
+      if (isNew) nav(`/workflows/${w.id}${sub ? `/${sub}` : ""}`, { replace: true });
       return w.id;
     } catch (e) {
       toast.error(errMsg(e));
@@ -294,7 +308,19 @@ function Builder() {
   const nodeIds = nodes.map((n) => n.id);
 
   const panelBody =
-    panel === "run" ? (
+    sub === "inputs" ? (
+      <InputFieldsPanel
+        key={`${id}:${wf.dataUpdatedAt}`}
+        value={inputFields}
+        readOnly={readOnly}
+        onClose={() => nav(base)}
+        onApply={(v) => {
+          setInputFields(v);
+          setDirty(true);
+          nav(base);
+        }}
+      />
+    ) : panel === "run" ? (
       <RunPanel fields={inputFields} runId={runId} stream={stream} starting={start.isPending || saving} onRun={run} />
     ) : selected ? (
       <NodeConfig
@@ -366,9 +392,17 @@ function Builder() {
             {wf.data?.org_id === null && <Badge tone="primary" icon={<Globe className="size-2.5" />} className="hidden sm:inline-flex">Global</Badge>}
             {dirty && !readOnly && <Badge tone="warning" className="hidden sm:inline-flex">Unsaved</Badge>}
             <div className="flex-1" />
-            <Button variant="outline" size="sm" icon={<ListPlus className="size-3.5" />} onClick={() => setInputsOpen(true)} title="Input fields">
+            <Link
+              to={sub === "inputs" ? base : `${base}/inputs`}
+              title="Input fields"
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors",
+                sub === "inputs" ? "border-indigo-500/30 bg-primary-soft text-primary" : "border-border bg-surface hover:bg-surface-2",
+              )}
+            >
+              <ListPlus className="size-3.5" />
               <span className="hidden md:inline">Inputs</span>
-            </Button>
+            </Link>
             <Button variant="outline" size="sm" icon={<ShieldCheck className="size-3.5" />} onClick={validate} title="Validate" className="hidden sm:inline-flex">
               <span className="hidden md:inline">Validate</span>
             </Button>
@@ -378,7 +412,7 @@ function Builder() {
               </Button>
             )}
             {can("member") && (
-              <Button size="sm" icon={<Play className="size-3.5" />} onClick={() => setPanel("run")} title="Run">
+              <Button size="sm" icon={<Play className="size-3.5" />} onClick={() => showPanel("run")} title="Run">
                 <span className="hidden sm:inline">Run</span>
               </Button>
             )}
@@ -424,7 +458,7 @@ function Builder() {
                 onConnect={onConnect}
                 onNodeClick={(_, n) => {
                   setSelectedId(n.id);
-                  setPanel("config");
+                  showPanel("config");
                 }}
                 onPaneClick={() => {
                   setSelectedId(null);
@@ -452,13 +486,13 @@ function Builder() {
                   <Button size="sm" variant="outline" onClick={() => rf.fitView({ padding: 0.2 })} aria-label="Fit view">
                     <Maximize2 className="size-3.5" />
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setPanel(panel ? null : "config")} aria-label="Panel">
+                  <Button size="sm" variant="outline" onClick={() => showPanel(panel || sub ? null : "config")} aria-label="Panel">
                     <SlidersHorizontal className="size-3.5" />
                   </Button>
                 </Panel>
-                {!panel && (
+                {!panel && !sub && (
                   <Panel position="top-right" className="!hidden lg:!block">
-                    <Button size="sm" variant="outline" icon={<SlidersHorizontal className="size-3.5" />} onClick={() => setPanel("config")}>
+                    <Button size="sm" variant="outline" icon={<SlidersHorizontal className="size-3.5" />} onClick={() => showPanel("config")}>
                       Details
                     </Button>
                   </Panel>
@@ -479,7 +513,7 @@ function Builder() {
               className={cn(
                 "absolute inset-x-0 bottom-0 z-20 h-[68%] flex-col rounded-t-2xl border-t border-border bg-surface shadow-2xl",
                 "lg:static lg:z-auto lg:h-auto lg:w-[360px] lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none",
-                panel ? "flex" : "hidden",
+                panel || sub ? "flex" : "hidden",
               )}
             >
               <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
@@ -489,16 +523,22 @@ function Builder() {
                 ].map((t) => (
                   <button
                     key={t.key}
-                    onClick={() => setPanel(t.key)}
-                    className={cn("cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium", (panel ?? "config") === t.key ? "bg-primary-soft text-primary" : "text-muted hover:bg-surface-2")}
+                    onClick={() => showPanel(t.key)}
+                    className={cn("cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium", !sub && (panel ?? "config") === t.key ? "bg-primary-soft text-primary" : "text-muted hover:bg-surface-2")}
                   >
                     {t.label}
                   </button>
                 ))}
+                <Link
+                  to={`${base}/inputs`}
+                  className={cn("rounded-lg px-3 py-1.5 text-sm font-medium", sub === "inputs" ? "bg-primary-soft text-primary" : "text-muted hover:bg-surface-2")}
+                >
+                  Inputs
+                </Link>
                 <div className="flex-1" />
                 <button
                   onClick={() => {
-                    setPanel(null);
+                    showPanel(null);
                     setSelectedId(null);
                   }}
                   className="cursor-pointer rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-fg"
@@ -515,16 +555,6 @@ function Builder() {
         <Sheet open={paletteOpen} onClose={() => setPaletteOpen(false)} title="Add node" side="right" width="w-[300px]">
           <Palette onAdd={addNode} />
         </Sheet>
-        <InputFieldsDialog
-          open={inputsOpen}
-          onClose={() => setInputsOpen(false)}
-          value={inputFields}
-          readOnly={readOnly}
-          onChange={(v) => {
-            setInputFields(v);
-            setDirty(true);
-          }}
-        />
         <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={remove} title="Delete this workflow?" description="Automations that run it will fail." />
       </LookupCtx.Provider>
     </StatusCtx.Provider>

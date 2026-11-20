@@ -7,8 +7,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from ..db import SessionLocal
-from ..models import RunEvent
+from app.core.db import SessionLocal
+from app.modules.runs.models import RunEvent
 
 log = logging.getLogger("agentforge.events")
 

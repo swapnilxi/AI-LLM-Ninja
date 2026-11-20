@@ -1,31 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import {
-  Activity,
-  ArrowRight,
-  Bot,
-  Compass,
-  CornerDownLeft,
-  FolderKanban,
-  LayoutDashboard,
-  ListChecks,
-  MessagesSquare,
-  Plug,
-  Plus,
-  Search,
-  Settings,
-  Sparkles,
-  Timer,
-  Users,
-  Workflow as WorkflowIcon,
-  Wrench,
-  ArrowLeftRight,
-} from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/utils";
-import { useAgents, useSkills, useTeams, useWorkflows } from "@/hooks/useData";
-import { AgentAvatar } from "@/components/ui/icons";
+import { ArrowRight, Bot, CornerDownLeft, FolderKanban, Search, Sparkles, Users, Workflow as WorkflowIcon } from "lucide-react";
+import { useAuth } from "@/shared/lib/auth";
+import { MODULES, NAV } from "@/modules/registry";
+import { cn } from "@/shared/lib/utils";
+import { useAgents } from "@/modules/agents/api";
+import { useSkills } from "@/modules/skills/api";
+import { useTeams } from "@/modules/teams/api";
+import { useWorkflows } from "@/modules/workflows/api";
+import { AgentAvatar } from "@/shared/ui/icons";
 
 interface Cmd {
   id: string;
@@ -62,30 +46,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const commands: Cmd[] = useMemo(() => {
     const ic = "size-4";
     const pages: Cmd[] = [
-      { id: "p-dash", group: "Go to", label: "Dashboard", icon: <LayoutDashboard className={ic} />, run: go("/") },
-      { id: "p-chat", group: "Go to", label: "Chat", icon: <MessagesSquare className={ic} />, run: go("/chat") },
-      { id: "p-agents", group: "Go to", label: "Agents", icon: <Bot className={ic} />, run: go("/agents") },
-      { id: "p-teams", group: "Go to", label: "Teams", icon: <Users className={ic} />, run: go("/teams") },
-      { id: "p-wf", group: "Go to", label: "Workflows", icon: <WorkflowIcon className={ic} />, run: go("/workflows") },
-      { id: "p-skills", group: "Go to", label: "Skills", icon: <Sparkles className={ic} />, run: go("/skills") },
-      { id: "p-tpl", group: "Go to", label: "Skill templates", icon: <Sparkles className={ic} />, keywords: "gallery", run: go("/skills?tab=templates") },
-      { id: "p-tools", group: "Go to", label: "Tools", icon: <Wrench className={ic} />, run: go("/tools") },
-      { id: "p-conn", group: "Go to", label: "Connectors", icon: <Plug className={ic} />, keywords: "apps integrations mcp", run: go("/connectors") },
-      { id: "p-disc", group: "Go to", label: "Discover", icon: <Compass className={ic} />, keywords: "install skills mcp connectors marketplace browser use find skill top skills", run: go("/discover") },
-      { id: "p-mcp", group: "Go to", label: "Popular MCP servers", icon: <Plug className={ic} />, keywords: "connect tools github context7 deepwiki browser use", run: go("/discover?tab=connectors") },
-      { id: "p-tasks", group: "Go to", label: "Tasks", icon: <ListChecks className={ic} />, keywords: "todo to-do action items", run: go("/tasks") },
-      { id: "p-auto", group: "Go to", label: "Automations", icon: <Timer className={ic} />, keywords: "schedule cron webhook", run: go("/automations") },
-      { id: "p-runs", group: "Go to", label: "Runs", icon: <Activity className={ic} />, keywords: "history logs", run: go("/runs") },
-      { id: "p-proj", group: "Go to", label: "Projects", icon: <FolderKanban className={ic} />, run: go("/projects") },
-      { id: "p-set", group: "Go to", label: "Settings", icon: <Settings className={ic} />, keywords: "keys members models providers", run: go("/settings") },
-      { id: "p-xfer", group: "Go to", label: "Import / Export library", icon: <ArrowLeftRight className={ic} />, keywords: "backup bundle json", run: go("/settings/transfer") },
+      ...NAV.flatMap((g) => g.items).map((n) => ({ id: `p-${n.to}`, group: "Go to", label: n.label, icon: <n.icon className={ic} />, keywords: n.keywords, run: go(n.to) })),
+      ...MODULES.flatMap((m) => m.commands ?? []).filter((c) => (c.group ?? "Go to") === "Go to").map((c) => ({ id: c.id, group: "Go to", label: c.label, icon: <c.icon className={ic} />, keywords: c.keywords, run: go(c.to) })),
     ];
-    const create: Cmd[] = [
-      { id: "n-agent", group: "Create", label: "New agent", icon: <Plus className={ic} />, run: go("/agents/new") },
-      { id: "n-skill", group: "Create", label: "New skill", icon: <Plus className={ic} />, run: go("/skills/new") },
-      { id: "n-team", group: "Create", label: "New team", icon: <Plus className={ic} />, run: go("/teams/new") },
-      { id: "n-wf", group: "Create", label: "New workflow", icon: <Plus className={ic} />, run: go("/workflows/new") },
-    ];
+    const create: Cmd[] = MODULES.flatMap((m) => m.commands ?? [])
+      .filter((c) => c.group === "Create")
+      .map((c) => ({ id: c.id, group: "Create", label: c.label, icon: <c.icon className={ic} />, keywords: c.keywords, run: go(c.to) }));
     const ags: Cmd[] = (agents.data ?? []).flatMap((a) => [
       { id: `ac-${a.id}`, group: "Agents", label: `Chat with ${a.name}`, hint: a.description, icon: <AgentAvatar agent={a} size="xs" />, keywords: a.tags.join(" "), run: go(`/chat?agent=${a.id}`) },
       { id: `ao-${a.id}`, group: "Agents", label: `Edit ${a.name}`, icon: <Bot className={ic} />, run: go(`/agents/${a.id}`) },

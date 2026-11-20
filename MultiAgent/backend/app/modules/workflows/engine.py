@@ -17,14 +17,17 @@ import time
 from collections import defaultdict
 from typing import Any
 
-from ..db import SessionLocal
-from ..models import Agent, Team, Tool, Workflow
-from .context import RunContext
-from .llm.base import LLMError, ModelSettings
-from .llm.registry import get_provider, resolve_model
-from .templating import evaluate, render
-from .tools.builtin import BUILTINS
-from .tools.registry import runtime_for
+from app.core.db import SessionLocal
+from app.engine.context import RunContext
+from app.engine.llm.base import LLMError, ModelSettings
+from app.engine.llm.registry import get_provider, resolve_model
+from app.engine.templating import evaluate, render
+from app.engine.tools.builtin import BUILTINS
+from app.engine.tools.registry import runtime_for
+from app.modules.agents.models import Agent
+from app.modules.teams.models import Team
+from app.modules.tools.models import Tool
+from app.modules.workflows.models import Workflow
 
 NODE_TYPES = {"input", "agent", "team", "tool", "llm", "condition", "template", "output"}
 MAX_NODES = 60
@@ -189,7 +192,7 @@ async def _run_node(ctx: RunContext, t: str, d: dict[str, Any], tc: dict[str, An
         result = evaluate(d.get("expression") or "true", tc)
         return ("true" if result else "false"), ("true" if result else "false")
     if t == "agent":
-        from .runner import run_agent
+        from app.modules.agents.runner import run_agent
 
         async with SessionLocal() as s:
             agent = await s.get(Agent, d.get("agent_id", ""))
@@ -199,7 +202,7 @@ async def _run_node(ctx: RunContext, t: str, d: dict[str, Any], tc: dict[str, An
         res = await run_agent(ctx.child(agent.id), agent, prompt, label=d.get("label") or agent.name, node_id=d.get("_id", ""))
         return res.text, None
     if t == "team":
-        from .orchestrator import run_team
+        from app.modules.teams.orchestrator import run_team
 
         async with SessionLocal() as s:
             team = await s.get(Team, d.get("team_id", ""))

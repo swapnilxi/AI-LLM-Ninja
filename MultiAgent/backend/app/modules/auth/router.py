@@ -6,14 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
-from ..db import get_session
-from ..deps import audit, get_current_user
-from ..models import Membership, Organization, User
-from ..ratelimit import client_ip, enforce
-from ..schemas import LoginIn, OrgOut, OrgWithRole, RegisterIn, TokenOut, UpdateMeIn, UserOut
-from ..security import DUMMY_HASH, create_access_token, hash_password, validate_password_strength, verify_password
-from .common import create_default_project, slugify
+from app.core.common import create_default_project, slugify
+from app.core.config import settings
+from app.core.db import get_session
+from app.core.deps import audit, get_current_user
+from app.core.ratelimit import client_ip, enforce
+from app.core.security import DUMMY_HASH, create_access_token, hash_password, validate_password_strength, verify_password
+from app.modules.auth.models import User
+from app.modules.auth.schemas import LoginIn, RegisterIn, TokenOut, UpdateMeIn, UserOut
+from app.modules.orgs.models import Membership, Organization
+from app.modules.orgs.schemas import OrgOut, OrgWithRole
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

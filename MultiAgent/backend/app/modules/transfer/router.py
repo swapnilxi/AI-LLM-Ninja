@@ -7,18 +7,30 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, audit, require_role, visible
-from ..engine.commands import COMMAND_NAME_RE, RESERVED
-from ..engine.workflow import validate_graph
-from ..models import Agent, Skill, Team, Tool, Workflow
-from pydantic import ValidationError
-
-from ..schemas import AgentIn, ExportIn, ImportIn, SkillIn, TeamIn, ToolIn, WorkflowIn
-from .library import prep_agent, prep_skill, prep_team, prep_tool, prep_workflow
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, require_role, visible
+from app.modules.agents.models import Agent
+from app.modules.agents.router import prep_agent
+from app.modules.agents.schemas import AgentIn
+from app.modules.skills.commands import COMMAND_NAME_RE, RESERVED
+from app.modules.skills.models import Skill
+from app.modules.skills.router import prep_skill
+from app.modules.skills.schemas import SkillIn
+from app.modules.teams.models import Team
+from app.modules.teams.router import prep_team
+from app.modules.teams.schemas import TeamIn
+from app.modules.tools.models import Tool
+from app.modules.tools.router import prep_tool
+from app.modules.tools.schemas import ToolIn
+from app.modules.transfer.schemas import ExportIn, ImportIn
+from app.modules.workflows.engine import validate_graph
+from app.modules.workflows.models import Workflow
+from app.modules.workflows.router import prep_workflow
+from app.modules.workflows.schemas import WorkflowIn
 
 router = APIRouter(prefix="/library", tags=["import-export"])
 

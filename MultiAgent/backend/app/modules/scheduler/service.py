@@ -1,4 +1,4 @@
-"""Background scheduler for automations (cron / interval triggers)."""
+"""Background scheduler: fires due schedules (cron / interval / one-time) and computes upcoming runs."""
 from __future__ import annotations
 
 import asyncio
@@ -10,10 +10,12 @@ from croniter import croniter
 from fastapi import HTTPException
 from sqlalchemy import select, update
 
-from ..config import settings
-from ..db import SessionLocal
-from ..models import Automation, Organization, Project
-from .runs import start_run
+from app.core.config import settings
+from app.core.db import SessionLocal
+from app.modules.orgs.models import Organization
+from app.modules.projects.models import Project
+from app.modules.runs.service import start_run
+from app.modules.scheduler.models import Automation
 
 log = logging.getLogger("agentforge.scheduler")
 
@@ -22,6 +24,8 @@ def compute_next_run(auto: Automation, after: datetime | None = None) -> datetim
     after = after or datetime.now(timezone.utc)
     if not auto.enabled:
         return None
+    if auto.trigger_type == "once":
+        return auto.run_at if auto.run_at and auto.run_at > after else None
     if auto.trigger_type == "interval" and auto.interval_minutes and auto.interval_minutes > 0:
         return after + timedelta(minutes=max(1, auto.interval_minutes))
     if auto.trigger_type == "schedule" and auto.cron:
@@ -79,7 +83,7 @@ async def tick() -> int:
                 await s.execute(
                     select(Automation).where(
                         Automation.enabled.is_(True),
-                        Automation.trigger_type.in_(["schedule", "interval"]),
+                        Automation.trigger_type.in_(["schedule", "interval", "once"]),
                         Automation.next_run_at.is_not(None),
                         Automation.next_run_at <= now,
                     )
@@ -101,6 +105,34 @@ async def tick() -> int:
                 fired += 1
                 asyncio.create_task(fire(auto.id))
     return fired
+
+
+def occurrences(auto: Automation, start: datetime, end: datetime, limit: int = 50) -> list[datetime]:
+    """Run times of one schedule inside [start, end) (UTC), for the upcoming-runs agenda."""
+    if not auto.enabled or not auto.next_run_at:
+        return []
+    out: list[datetime] = []
+    if auto.trigger_type == "once":
+        return [auto.next_run_at] if start <= auto.next_run_at < end else []
+    if auto.trigger_type == "interval" and auto.interval_minutes:
+        t, step = auto.next_run_at, timedelta(minutes=max(1, auto.interval_minutes))
+        while t < end and len(out) < limit:
+            if t >= start:
+                out.append(t)
+            t += step
+        return out
+    if auto.trigger_type == "schedule" and auto.cron and croniter.is_valid(auto.cron):
+        try:
+            tz = ZoneInfo(auto.timezone or "UTC")
+        except Exception:
+            tz = ZoneInfo("UTC")
+        it = croniter(auto.cron, (start - timedelta(seconds=1)).astimezone(tz))
+        while len(out) < limit:
+            t = it.get_next(datetime).astimezone(timezone.utc)
+            if t >= end:
+                break
+            out.append(t)
+    return out
 
 
 async def scheduler_loop(stop: asyncio.Event) -> None:

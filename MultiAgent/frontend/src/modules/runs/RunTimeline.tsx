@@ -16,10 +16,10 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-import type { RunEvent, RunStatus } from "@/lib/types";
-import { cn, formatNumber } from "@/lib/utils";
-import { Badge } from "@/components/ui/primitives";
-import { Markdown } from "@/components/ui/Markdown";
+import type { RunEvent, RunStatus } from "@/modules/runs/types";
+import { cn, formatNumber } from "@/shared/lib/utils";
+import { Badge } from "@/shared/ui/primitives";
+import { Markdown } from "@/shared/ui/Markdown";
 
 export function RunStatusBadge({ status }: { status: RunStatus | string | null }) {
   if (!status) return null;

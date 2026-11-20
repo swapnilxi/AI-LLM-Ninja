@@ -12,8 +12,8 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .llm.base import LLMError, ModelSettings
-from .llm.registry import get_provider, resolve_model
+from app.engine.llm.base import LLMError, ModelSettings
+from app.engine.llm.registry import get_provider, resolve_model
 
 log = logging.getLogger("agentforge.oneshot")
 

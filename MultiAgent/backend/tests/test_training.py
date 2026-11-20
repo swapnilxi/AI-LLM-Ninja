@@ -134,8 +134,8 @@ def test_distill_without_lessons_and_isolation(env, client):
 
 
 # ------------------------------------------------------------------ npx-style skill install
-from app.engine import skill_install  # noqa: E402
 from app.engine.net import SafeResponse  # noqa: E402
+from app.modules.skills import install as skill_install  # noqa: E402
 
 TREE = {"tree": [
     {"path": "skills/pdf/SKILL.md", "type": "blob"},

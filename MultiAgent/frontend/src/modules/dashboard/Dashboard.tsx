@@ -21,15 +21,16 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { http, qs } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
-import type { Run, TargetType } from "@/lib/types";
-import { cn, formatNumber, timeAgo } from "@/lib/utils";
-import { useProviders } from "@/hooks/useData";
-import { Page } from "@/components/layout/PageHeader";
-import { Card, CardHeader, EmptyState, PageLoader, Stat } from "@/components/ui/primitives";
-import { IconTile } from "@/components/ui/icons";
-import { RunStatusBadge } from "@/components/run/RunTimeline";
+import { http, qs } from "@/shared/lib/api";
+import { useAuth } from "@/shared/lib/auth";
+import type { Run } from "@/modules/runs/types";
+import type { TargetType } from "@/shared/lib/types";
+import { cn, formatNumber, timeAgo } from "@/shared/lib/utils";
+import { useProviders } from "@/modules/settings/api";
+import { Page } from "@/shared/layout/PageHeader";
+import { Card, CardHeader, EmptyState, PageLoader, Stat } from "@/shared/ui/primitives";
+import { IconTile } from "@/shared/ui/icons";
+import { RunStatusBadge } from "@/modules/runs/RunTimeline";
 import { RunsChart, type DayPoint } from "./RunsChart";
 
 interface DashboardData {
@@ -193,7 +194,7 @@ export default function Dashboard() {
                 <TokenMeter used={d.tokens_today} limit={d.daily_token_limit} />
               </div>
             </Card>
-            <Stat label="Active automations" value={d.counts.automations_active} icon={<Timer className="size-4" />} hint={<Link to="/automations" className="hover:text-fg">Manage →</Link>} />
+            <Stat label="Active schedules" value={d.counts.automations_active} icon={<Timer className="size-4" />} hint={<Link to="/scheduler" className="hover:text-fg">Manage →</Link>} />
             <Stat
               label="Running now"
               value={

@@ -11,14 +11,21 @@ from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
-from ..db import SessionLocal
-from ..models import Agent, Automation, Conversation, Message, Organization, Project, Run, Team, Workflow
-from ..ratelimit import limiter_backend
-from .commands import apply_command
-from .context import BudgetExceeded, OrgSnap, ProjectSnap, RunContext
-from .llm.base import LLMError
-from .templating import TemplateRenderError
+from app.core.config import settings
+from app.core.db import SessionLocal
+from app.core.ratelimit import limiter_backend
+from app.engine.context import BudgetExceeded, OrgSnap, ProjectSnap, RunContext
+from app.engine.llm.base import LLMError
+from app.engine.templating import TemplateRenderError
+from app.modules.agents.models import Agent
+from app.modules.chat.models import Conversation, Message
+from app.modules.orgs.models import Organization
+from app.modules.projects.models import Project
+from app.modules.runs.models import Run
+from app.modules.scheduler.models import Automation
+from app.modules.skills.commands import apply_command
+from app.modules.teams.models import Team
+from app.modules.workflows.models import Workflow
 
 log = logging.getLogger("agentforge.runs")
 
@@ -198,7 +205,7 @@ async def _execute(run_id: str) -> None:
             await s.commit()
     finally:
         if status == "succeeded":
-            from .learning import schedule_auto_learn
+            from app.modules.training.learning import schedule_auto_learn
 
             schedule_auto_learn(run_id)
         await ctx.emit("run_end", {"status": status, "output": output[:8000], "error": error, "usage": dict(ctx.usage)})
@@ -206,14 +213,14 @@ async def _execute(run_id: str) -> None:
 
 async def _dispatch(ctx: RunContext, target_type: str, target: Any, data: dict[str, Any], history: list[dict[str, Any]], task: str) -> str:
     if target_type == "agent":
-        from .runner import run_agent
+        from app.modules.agents.runner import run_agent
 
         return (await run_agent(ctx, target, task, history=history)).text
     if target_type == "team":
-        from .orchestrator import run_team
+        from app.modules.teams.orchestrator import run_team
 
         return await run_team(ctx, target, task, history)
-    from .workflow import run_workflow
+    from app.modules.workflows.engine import run_workflow
 
     return await run_workflow(ctx, target, data)
 

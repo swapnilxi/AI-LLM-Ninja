@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import io
 import json
 import logging
 import math
@@ -18,16 +17,18 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from bs4 import BeautifulSoup
 from sqlalchemy import or_, select
 
-from ...config import settings
-from ...db import SessionLocal
-from ...models import Document, Memory
-from .. import knowledge
-from ..net import BlockedURL, safe_request, validate_url
-from . import productivity, skills_tools
-from .base import RuntimeTool, ToolResult, schema
+from app.core.config import settings
+from app.core.db import SessionLocal
+from app.engine.net import BlockedURL, safe_request, validate_url
+from app.engine.tools.base import RuntimeTool, ToolResult, schema
+from app.modules.knowledge import service as knowledge
+from app.modules.knowledge.models import Document, Memory
+from app.modules.skills import agent_tools as skills_tools
+from app.modules.scheduler import agent_tools as scheduling
+from app.modules.tasks import agent_tools as productivity
 
 if TYPE_CHECKING:
-    from ..context import RunContext
+    from app.engine.context import RunContext
 
 log = logging.getLogger("agentforge.tools")
 
@@ -95,7 +96,7 @@ async def web_search(args: dict[str, Any], ctx: "RunContext") -> ToolResult:
         results, engine = await _duckduckgo(query, n)
     policy = ctx.net_policy()
     if policy.blocked_domains:
-        from ..net import host_matches
+        from app.engine.net import host_matches
 
         results = [r for r in results if not host_matches(urlsplit(r["url"]).hostname or "", policy.blocked_domains)]
     if not results:
@@ -421,6 +422,7 @@ HANDLERS = {
     "read_document": read_document,
     "memory": memory,
     **productivity.HANDLERS,
+    **scheduling.HANDLERS,
     **skills_tools.HANDLERS,
 }
 
@@ -582,13 +584,13 @@ BUILTINS: dict[str, BuiltinDef] = {
         BuiltinDef(
             "schedule_task",
             "Schedule Task",
-            "Create a RECURRING automation that runs `task` as this agent on a schedule. Use only when the user explicitly asks for something to run repeatedly "
-            "(e.g. 'every weekday at 9am'); confirm the schedule back to them. One-time reminders are not supported.",
+            "Create a schedule that runs `task` as this agent: recurring ('every weekday at 9am') or one-time ('tomorrow at 3pm', 'in 2 hours'). "
+            "Use only when the user explicitly asks for something to run later or repeatedly; confirm the schedule back to them.",
             schema(
                 {
-                    "when": {"type": "string", "description": "Recurring schedule in plain English, e.g. 'every weekday at 9am', 'every 2 hours', 'monthly on the 1st'"},
+                    "when": {"type": "string", "description": "When, in plain English: 'every weekday at 9am', 'every 2 hours', 'monthly on the 1st', 'tomorrow at 3pm', 'in 2 hours'"},
                     "task": {"type": "string", "description": "What the agent should do on every run"},
-                    "name": {"type": "string", "description": "Short name for the automation"},
+                    "name": {"type": "string", "description": "Short name for the schedule"},
                     "timezone": {"type": "string", "description": "IANA timezone, e.g. Asia/Kolkata (defaults to the project timezone or UTC)"},
                 },
                 ["when", "task"],

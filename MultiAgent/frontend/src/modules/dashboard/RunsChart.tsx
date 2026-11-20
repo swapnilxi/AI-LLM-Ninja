@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from "react";
 import { Table2, ChartColumn } from "lucide-react";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/shared/lib/utils";
 
 export interface DayPoint {
   date: string;

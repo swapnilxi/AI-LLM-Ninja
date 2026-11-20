@@ -8,15 +8,24 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, get_org_ctx, visible
-from ..engine.connectors.registry import CONNECTORS
-from ..engine.orchestrator import STYLES
-from ..engine.runs import daily_limit, tokens_used_today
-from ..engine.tools.builtin import BUILTINS
-from ..engine.workflow import NODE_TYPES
-from ..models import Agent, Automation, Connection, Document, Memory, Project, Run, Skill, Team, Tool, Workflow
-from ..schemas import RunOut
+from app.core.db import get_session
+from app.core.deps import OrgContext, get_org_ctx, visible
+from app.engine.tools.builtin import BUILTINS
+from app.modules.agents.models import Agent
+from app.modules.connectors.models import Connection
+from app.modules.connectors.registry import CONNECTORS
+from app.modules.knowledge.models import Document, Memory
+from app.modules.projects.models import Project
+from app.modules.runs.models import Run
+from app.modules.runs.schemas import RunOut
+from app.modules.runs.service import daily_limit, tokens_used_today
+from app.modules.scheduler.models import Automation
+from app.modules.skills.models import Skill
+from app.modules.teams.models import Team
+from app.modules.teams.orchestrator import STYLES
+from app.modules.tools.models import Tool
+from app.modules.workflows.engine import NODE_TYPES
+from app.modules.workflows.models import Workflow
 
 router = APIRouter(tags=["dashboard"])
 

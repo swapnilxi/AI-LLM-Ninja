@@ -1,15 +1,14 @@
 """Async SQLAlchemy engine / session management."""
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
 import logging
+from collections.abc import AsyncIterator
 
 from sqlalchemy import event, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-from .config import settings
+from app.core.config import settings
 
 
 class Base(DeclarativeBase):
@@ -76,7 +75,9 @@ def _add_missing_columns(sync_conn) -> None:
 
 
 async def init_db() -> None:
-    from . import models  # noqa: F401  (register tables)
+    from app.modules import load_models
+
+    load_models()  # register every module's tables
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

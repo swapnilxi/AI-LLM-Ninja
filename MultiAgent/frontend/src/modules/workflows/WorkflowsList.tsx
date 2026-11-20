@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GitBranch, Play, Plus, Workflow as WorkflowIcon } from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import type { Workflow } from "@/lib/types";
-import { timeAgo } from "@/lib/utils";
-import { useWorkflows } from "@/hooks/useData";
-import { Page, PageHeader } from "@/components/layout/PageHeader";
-import { Badge, Button, EmptyState, PageLoader, Tabs } from "@/components/ui/primitives";
-import { SearchInput } from "@/components/ui/inputs";
-import { IconTile } from "@/components/ui/icons";
-import { Grid, ResourceCard, ScopeBadge } from "@/components/library";
-import { RunLauncher } from "@/components/run/RunLauncher";
+import { useAuth } from "@/shared/lib/auth";
+import { timeAgo } from "@/shared/lib/utils";
+import { useWorkflows } from "@/modules/workflows/api";
+import { Page, PageHeader } from "@/shared/layout/PageHeader";
+import { Badge, Button, EmptyState, PageLoader, Tabs } from "@/shared/ui/primitives";
+import { SearchInput } from "@/shared/ui/inputs";
+import { IconTile } from "@/shared/ui/icons";
+import { Grid, ResourceCard, ScopeBadge } from "@/shared/components/library";
+import { withReturn } from "@/shared/hooks/useReturnTo";
 
 export default function WorkflowsList() {
   const wfs = useWorkflows();
@@ -18,7 +17,6 @@ export default function WorkflowsList() {
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [scope, setScope] = useState<"all" | "org" | "global">("all");
-  const [running, setRunning] = useState<Workflow | null>(null);
 
   const items = (wfs.data ?? []).filter(
     (w) => (scope === "all" || (scope === "global" ? w.org_id === null : w.org_id !== null)) && (!q || `${w.name} ${w.description}`.toLowerCase().includes(q.toLowerCase())),
@@ -82,7 +80,7 @@ export default function WorkflowsList() {
                       title="Run workflow"
                       onClick={(e) => {
                         e.preventDefault();
-                        setRunning(w);
+                        nav(withReturn(`/runs/new?target_type=workflow&target_id=${w.id}`, "/workflows"));
                       }}
                     >
                       <Play className="size-3.5" />
@@ -93,9 +91,6 @@ export default function WorkflowsList() {
             );
           })}
         </Grid>
-      )}
-      {running && (
-        <RunLauncher open={!!running} onClose={() => setRunning(null)} targetType="workflow" targetId={running.id} targetName={running.name} fields={running.input_fields} />
       )}
     </Page>
   );

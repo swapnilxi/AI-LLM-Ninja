@@ -8,12 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db import get_session
-from ..deps import OrgContext, audit, get_org_ctx, get_project, require_role
-from ..engine import runs as run_engine, tasks as task_engine
-from ..models import Conversation, Message, Task
-from ..schemas import TaskBulkIn, TaskExtractIn, TaskIn, TaskOut, TaskRunIn, TaskUpdate
-from .common import pick_agent
+from app.core.common import pick_agent
+from app.core.db import get_session
+from app.core.deps import OrgContext, audit, get_org_ctx, get_project, require_role
+from app.modules.chat.models import Conversation, Message
+from app.modules.runs import service as run_engine
+from app.modules.tasks import service as task_engine
+from app.modules.tasks.models import Task
+from app.modules.tasks.schemas import TaskBulkIn, TaskExtractIn, TaskIn, TaskOut, TaskRunIn, TaskUpdate
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 SOURCE_EXCERPT = 1500

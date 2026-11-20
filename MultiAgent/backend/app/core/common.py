@@ -8,8 +8,14 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..deps import OrgContext, filter_visible_ids
-from ..models import Agent, Connection, Organization, Project, Skill, Team, Tool
+from app.core.deps import OrgContext, filter_visible_ids
+from app.modules.agents.models import Agent
+from app.modules.connectors.models import Connection
+from app.modules.orgs.models import Organization
+from app.modules.projects.models import Project
+from app.modules.skills.models import Skill
+from app.modules.teams.models import Team
+from app.modules.tools.models import Tool
 
 
 def slugify(name: str) -> str:
@@ -81,7 +87,7 @@ async def pick_agent(session: AsyncSession, ctx: OrgContext, project: Project, a
                 return await session.get(Agent, ok[0])
             if candidate == agent_id:
                 raise HTTPException(404, "Agent not found")
-    from ..deps import visible
+    from app.core.deps import visible
 
     row = (await session.execute(select(Agent).where(visible(Agent, ctx.org_id)).order_by(Agent.org_id.is_(None), Agent.created_at).limit(1))).scalars().first()
     if not row:
